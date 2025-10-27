@@ -412,6 +412,39 @@ RC Db::init_dblwr_buffer()
   return RC::SUCCESS;
 }
 
-LogHandler        &Db::log_handler() { return *log_handler_; }
-BufferPoolManager &Db::buffer_pool_manager() { return *buffer_pool_manager_; }
-TrxKit            &Db::trx_kit() { return *trx_kit_; }
+////// SC's modifications /////
+
+StorageEngine Db::get_storage_engine()
+{
+  StorageEngine engine = StorageEngine::UNKNOWN_ENGINE;
+  if (storage_engine_.length() == 0) {
+    engine = StorageEngine::HEAP;
+  } else if (0 == strcasecmp(storage_engine_.c_str(), "heap")) {
+    engine = StorageEngine::HEAP;
+  } else if (0 == strcasecmp(storage_engine_.c_str(), "lsm")) {
+    engine = StorageEngine::LSM;
+  } else {
+    engine = StorageEngine::UNKNOWN_ENGINE;
+  }
+  return engine;
+}
+
+RC Db::drop_table(const char *table_name){
+  auto iter = opened_tables_.find(table_name);
+  if (iter == opened_tables_.end()) {
+    LOG_WARN("%s table not exist", table_name);
+    return RC::SCHEMA_TABLE_NOT_EXIST;
+  }
+
+  RC op = iter->second->remove(table_name);
+  if (op != RC::SUCCESS) {
+    LOG_ERROR("Failed to drop table %s.", table_name);
+    return op;
+  }
+  opened_tables_.erase(iter);
+  LOG_INFO("drop table success. table name=%s", table_name);
+  return RC::SUCCESS;
+}
+
+
+// SnifferCaptain: 这个代码规范是我的话我不会通过pr

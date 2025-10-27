@@ -297,3 +297,138 @@ RC Table::sync()
 {
   return engine_->sync();
 }
+/////// SC's modification migrated to engine-based implementation ///////
+
+RC Table::remove(const char *name) {
+  if (common::is_blank(name)) {
+    LOG_WARN("Name cannot be empty");
+    return RC::INVALID_ARGUMENT;
+  }
+  LOG_INFO("Begin to remove table %s:%s", db_->path().c_str(), name);
+
+  // 先同步并销毁引擎，释放索引和 buffer 等资源（HeapTableEngine 的析构会释放 indexes_ 等）
+  if (engine_) {
+    (void)engine_->sync();
+    engine_.reset();
+  }
+
+  // 删除索引文件
+  for (int i = 0; i < table_meta_.index_num(); i++) {
+    const IndexMeta *index_meta = table_meta_.index(i);
+    std::string index_file = table_index_file(db_->path().c_str(), name, index_meta->name());
+    if (0 != ::unlink(index_file.c_str())) {
+      LOG_ERROR("Delete index file failed. filename=%s, errmsg=%d:%s", index_file.c_str(), errno, strerror(errno));
+      // continue trying to remove other files, but return error
+      return RC::IOERR_OPEN;
+    }
+  }
+
+  // 删除数据文件
+  std::string data_file = table_data_file(db_->path().c_str(), name);
+  if (0 != ::unlink(data_file.c_str())) {
+    LOG_ERROR("Delete data file failed. filename=%s, errmsg=%d:%s", data_file.c_str(), errno, strerror(errno));
+    return RC::IOERR_OPEN;
+  }
+
+  // 删除元数据文件
+  std::string meta_file = table_meta_file(db_->path().c_str(), name);
+  if (0 != ::unlink(meta_file.c_str())) {
+    LOG_ERROR("Delete meta file failed. filename=%s, errmsg=%d:%s", meta_file.c_str(), errno, strerror(errno));
+    return RC::IOERR_OPEN;
+  }
+
+  LOG_INFO("Successfully removed table %s:%s", db_->path().c_str(), name);
+  return RC::SUCCESS;
+}
+
+// 更新记录（按字段更新）：通过 engine_->visit_record 在页面锁保护下修改记录内容，随后维护索引
+RC Table::update_record(Trx *trx, Record *record, const char *attribute_name, const Value *values) {
+  LOG_INFO("Begin to update record. table name=%s, attribute name=%s", table_meta_.name(), attribute_name);
+
+  if (record == nullptr || attribute_name == nullptr || values == nullptr) {
+    return RC::INVALID_ARGUMENT;
+  }
+
+  const FieldMeta *field = table_meta_.field(attribute_name);
+  if (field == nullptr) {
+    LOG_ERROR("Field not found. table=%s, field=%s", table_meta_.name(), attribute_name);
+    return RC::SCHEMA_FIELD_MISSING;
+  }
+
+  const Value &value = values[0];
+  // 类型检查
+  if (field->type() != value.attr_type()) {
+    LOG_ERROR("Invalid value type. table name=%s, field name=%s, expect=%d, given=%d",
+              table_meta_.name(), field->name(), field->type(), value.attr_type());
+    return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+  }
+
+  // 计算拷贝长度
+  size_t copy_len = field->len();
+  if (field->type() == AttrType::CHARS) {
+    const size_t data_len = strlen((const char *)value.data());
+    if (copy_len > data_len) {
+      copy_len = data_len + 1;
+    }
+  }
+
+  // 备份旧数据（用于索引维护）
+  std::string old_data;
+  if (record->data() != nullptr) {
+    old_data.assign(record->data(), table_meta_.record_size());
+  }
+
+  // 构造新数据副本（不修改传入的 record，使用副本来更新索引）
+  std::string new_data = old_data;
+  if (new_data.size() < static_cast<size_t>(table_meta_.record_size())) {
+    new_data.resize(table_meta_.record_size());
+  }
+  memcpy(&new_data[0] + field->offset(), value.data(), copy_len);
+
+  // 在页面锁下修改记录内容（engine_->visit_record 会在合适的页上拿到写锁并调用 page_handler->update_record）
+  RC rc = engine_->visit_record(record->rid(), [&](Record &r) -> bool {
+    // r 是拷贝出来的 record，可以直接修改并返回 true 表示需要写回
+    if (r.data() == nullptr) {
+      LOG_ERROR("Invalid inplace record data. table=%s, rid=%s", table_meta_.name(), r.rid().to_string().c_str());
+      return false;
+    }
+    // 修改拷贝中的字段
+    memcpy(r.data() + field->offset(), value.data(), copy_len);
+    return true; // 告诉底层需要写回页面
+  });
+
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Failed to update record in page. rc=%s", strrc(rc));
+    return rc;
+  }
+
+  // 更新索引：先插入新索引项，再删除旧索引项（其实可以考虑类似swap的优化？）
+  for (int i = 0; i < table_meta_.index_num(); i++) {
+    const IndexMeta *index_meta = table_meta_.index(i);
+    if (0 == strcmp(index_meta->field(), attribute_name)) {
+      Index *idx = engine_->find_index(index_meta->name());
+      if (idx == nullptr) {
+        LOG_WARN("index not found while updating record. table=%s, index=%s", table_meta_.name(), index_meta->name());
+        continue;
+      }
+      // 插入新键
+      RC rc2 = idx->insert_entry(new_data.c_str(), &record->rid());
+      if (rc2 != RC::SUCCESS) {
+        LOG_WARN("failed to insert_entry while updating index. table=%s, index=%s, rc=%s",
+                 table_meta_.name(), index_meta->name(), strrc(rc2));
+        // 如果插入失败，这里不做复杂回滚，只记录日志
+        continue;
+      }
+      // 删除旧键
+      rc2 = idx->delete_entry(old_data.c_str(), &record->rid());
+      if (rc2 != RC::SUCCESS) {
+        LOG_WARN("failed to delete_entry while updating index. table=%s, index=%s, rc=%s",
+                 table_meta_.name(), index_meta->name(), strrc(rc2));
+      }
+      LOG_INFO("Succeed to update index (field=%s) of record(rid=%d.%d).",
+               index_meta->field(), record->rid().page_num, record->rid().slot_num);
+    }
+  }
+
+  return RC::SUCCESS;
+}

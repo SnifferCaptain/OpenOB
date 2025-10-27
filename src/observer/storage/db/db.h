@@ -48,35 +48,28 @@ public:
   Db() = default;
   ~Db();
 
-  /**
-   * @brief 初始化一个数据库实例
-   * @details 从指定的目录下加载指定名称的数据库。这里就会加载dbpath目录下的数据。
-   * @param name   数据库名称
-   * @param dbpath 当前数据库放在哪个目录下
-   * @param trx_kit_name 使用哪种类型的事务模型
-   * @param storage_engine 存储引擎，目前只支持heap table 和 lsm-tree 两种
-   * @note 数据库不是放在dbpath/name下，是直接使用dbpath目录
-   * @todo 支持多个 db，例如同一个db 都是相同的存储引擎。可参考 duckdb。
-   */
+  /// @brief 初始化一个数据库实例
+  /// @details 从指定的目录下加载指定名称的数据库。这里就会加载dbpath目录下的数据。
+  /// @param name   数据库名称
+  /// @param dbpath 当前数据库放在哪个目录下
+  /// @param trx_kit_name 使用哪种类型的事务模型
+  /// @param storage_engine 存储引擎，目前只支持heap table 和 lsm-tree 两种
+  /// @note 数据库不是放在dbpath/name下，是直接使用dbpath目录
+  /// @todo 支持多个 db，例如同一个db 都是相同的存储引擎。可参考 duckdb。
   RC init(const char *name, const char *dbpath, const char *trx_kit_name, const char *log_handler_name,
       const char *storage_engine = "heap");
 
-  /**
-   * @brief 创建一个表
-   * @param table_name 表名
-   * @param attributes 表的属性
-   * @param storage_format 表的存储格式
-   */
+  /// @brief 创建一个表
+  /// @param table_name 表名
+  /// @param attributes 表的属性
+  /// @param storage_format 表的存储格式
   RC create_table(const char *table_name, span<const AttrInfoSqlNode> attributes, const vector<string> &primary_keys,
       const StorageFormat storage_format = StorageFormat::ROW_FORMAT);
 
-  /**
-   * @brief 根据表名查找表
-   */
+  /// @brief 根据表名查找表
   Table *find_table(const char *table_name) const;
-  /**
-   * @brief 根据表ID查找表
-   */
+
+  /// @brief 根据表ID查找表
   Table *find_table(int32_t table_id) const;
 
   /// @brief 当前数据库的名称
@@ -85,53 +78,46 @@ public:
   /// @brief 列出所有的表
   void all_tables(vector<string> &table_names) const;
 
-  /**
-   * @brief 将所有内存中的数据，刷新到磁盘中。
-   * @details 注意，这里也没有并发控制，需要由上层来保证当前没有正在进行的事务。
-   */
+
+  /// @brief 将所有内存中的数据，刷新到磁盘中。
+  /// @details 注意，这里也没有并发控制，需要由上层来保证当前没有正在进行的事务。
   RC sync();
 
   /// @brief 获取当前数据库的日志处理器
-  LogHandler &log_handler();
+  LogHandler &log_handler() { return *log_handler_; }
 
   /// @brief 获取当前数据库的buffer pool管理器
-  BufferPoolManager &buffer_pool_manager();
+  BufferPoolManager &buffer_pool_manager(){ return *buffer_pool_manager_; }
 
   /// @brief 获取当前数据库的事务管理器
-  TrxKit &trx_kit();
+  TrxKit &trx_kit() { return *trx_kit_; }
 
   string path() const { return path_; }
 
+  // extern
   oceanbase::ObLsm *lsm() { return lsm_; }
+
+  /// @brief 删除当前数据库的一个表
+  RC drop_table(const char *table_name);
 
 private:
   /// @brief 打开所有的表。在数据库初始化的时候会执行
   RC open_all_tables();
+
   /// @brief 恢复数据。在数据库初始化的时候运行。
   RC recover();
 
   /// @brief 初始化元数据。在数据库初始化的时候，加载元数据
   RC init_meta();
+
   /// @brief 刷新数据库的元数据到磁盘中。每次执行sync时会执行此操作
   RC flush_meta();
 
   /// @brief 初始化数据库的double buffer pool
   RC init_dblwr_buffer();
 
-  StorageEngine get_storage_engine()
-  {
-    StorageEngine engine = StorageEngine::UNKNOWN_ENGINE;
-    if (storage_engine_.length() == 0) {
-      engine = StorageEngine::HEAP;
-    } else if (0 == strcasecmp(storage_engine_.c_str(), "heap")) {
-      engine = StorageEngine::HEAP;
-    } else if (0 == strcasecmp(storage_engine_.c_str(), "lsm")) {
-      engine = StorageEngine::LSM;
-    } else {
-      engine = StorageEngine::UNKNOWN_ENGINE;
-    }
-    return engine;
-  }
+  /// @brief 获取当前数据库的存储引擎
+  StorageEngine get_storage_engine();
 
 private:
   string                         name_;                 ///< 数据库名称

@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
+#include "storage/record/record_manager.h"
 #include "storage/table/table_meta.h"
 #include "storage/table/table_engine.h"
 #include "storage/common/chunk.h"
@@ -68,6 +69,21 @@ public:
    * @param base_dir 表所在的文件夹，表记录数据文件、索引数据文件存放位置
    */
   RC open(Db *db, const char *meta_file, const char *base_dir);
+
+  /**
+   * 删除一个表
+   * @param table_name 表名
+   */
+  RC remove(const char *table_name);
+
+  /**
+   * @brief 更新一条记录
+   * @param trx 事务
+   * @param record 记录
+   * @param attribute_name 记录的字段名
+   * @param values 更新的值
+   */
+  RC update_record(Trx *trx, Record *record, const char *attribute_name, const Value *values);
 
   /**
    * @brief 根据给定的字段生成一个记录/行
@@ -139,4 +155,5 @@ private:
   // vector<Index *>    indexes_;
   unique_ptr<TableEngine> engine_      = nullptr;
   LobFileHandler         *lob_handler_ = nullptr;
+  RowRecordPageHandler   *record_page_handler_ = nullptr;
 };
