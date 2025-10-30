@@ -293,6 +293,8 @@ enum SqlCommandFlag
   SCF_EXIT,
   SCF_EXPLAIN,
   SCF_SET_VARIABLE,  ///< 设置变量
+  ////// SC modification ///////
+  SCF_SHOW_INDEX,
 };
 /**
  * @brief 表示一个SQL语句

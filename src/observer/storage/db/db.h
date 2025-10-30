@@ -97,6 +97,8 @@ public:
   // extern
   oceanbase::ObLsm *lsm() { return lsm_; }
 
+//////// SC modification ///////
+
   /// @brief 删除当前数据库的一个表
   RC drop_table(const char *table_name);
 
