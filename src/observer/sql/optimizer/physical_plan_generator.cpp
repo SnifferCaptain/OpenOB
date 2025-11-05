@@ -44,6 +44,9 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/table_scan_vec_physical_operator.h"
 #include "sql/optimizer/physical_plan_generator.h"
 
+#include "sql/operator/update_logical_operator.hpp"
+#include "sql/operator/update_physical_operator.hpp"
+
 using namespace std;
 
 RC PhysicalPlanGenerator::create(LogicalOperator &logical_operator, unique_ptr<PhysicalOperator> &oper, Session* session)
@@ -85,6 +88,10 @@ RC PhysicalPlanGenerator::create(LogicalOperator &logical_operator, unique_ptr<P
 
     case LogicalOperatorType::GROUP_BY: {
       return create_plan(static_cast<GroupByLogicalOperator &>(logical_operator), oper, session);
+    } break;
+
+    case LogicalOperatorType::UPDATE: {
+      return create_plan(static_cast<UpdateLogicalOperator &>(logical_operator), oper, session);
     } break;
 
     default: {
@@ -467,5 +474,35 @@ RC PhysicalPlanGenerator::create_vec_plan(ExplainLogicalOperator &explain_oper, 
   }
 
   oper = std::move(explain_physical_oper);
+  return rc;
+}
+
+///// SC's Modification /////
+
+RC PhysicalPlanGenerator::create_plan(UpdateLogicalOperator &update_op, std::unique_ptr<PhysicalOperator> &op, Session* session) {
+  vector<unique_ptr<LogicalOperator>>& child_ops = update_op.children();
+  unique_ptr<PhysicalOperator> child_physical_op;
+  RC rc = RC::SUCCESS;
+  if (!child_ops.empty()) {
+    LogicalOperator* child_op = child_ops.front().get();
+    rc = create(*child_op, child_physical_op, session);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to create physical operator. rc=%s", strrc(rc));
+      return rc;
+    }
+  }
+  Table* table = update_op.table();
+  const FieldMeta* field_meta = update_op.field_meta();
+  const Value* value = update_op.value();
+  
+  if (nullptr == table || nullptr == field_meta || nullptr == value) {
+    LOG_WARN("invalid update operator: table=%p field_meta=%p value=%p", table, field_meta, value);
+    return RC::INVALID_ARGUMENT;
+  }
+  
+  op = unique_ptr<PhysicalOperator>(new UpdatePhysicalOperator(table, const_cast<FieldMeta*>(field_meta), const_cast<Value*>(value)));
+  if (child_physical_op) {
+    op->add_child(std::move(child_physical_op));
+  }
   return rc;
 }

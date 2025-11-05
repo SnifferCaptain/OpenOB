@@ -99,6 +99,16 @@ public:
 
   virtual RC set_value_from_str(Value &val, const string &data) const { return RC::UNSUPPORTED; }
 
+  /**
+   * @brief 计算 left 和 right 中的最大值，并将结果保存到 result 中
+   */
+  virtual RC max(const Value &left, const Value &right, Value &result) const { return RC::UNSUPPORTED; }
+
+  /**
+   * @brief 计算 left 和 right 中的最小值，并将结果保存到 result 中
+   */
+  virtual RC min(const Value &left, const Value &right, Value &result) const { return RC::UNSUPPORTED; }
+  
 protected:
   AttrType attr_type_;
 

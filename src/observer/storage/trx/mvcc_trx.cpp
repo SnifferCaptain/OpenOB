@@ -315,6 +315,13 @@ RC MvccTrx::commit_with_trx_id(int32_t commit_xid)
                rid.to_string().c_str(), strrc(rc));
       } break;
 
+      case Operation::Type::UPDATE: {
+        // UPDATE 操作：对于 MVCC，UPDATE 不需要修改事务字段
+        // 数据和索引已经在执行时更新完成
+        LOG_DEBUG("commit update operation. trx_id=%d, table=%s, rid=%d.%d",
+                  trx_id_, operation.table()->name(), operation.page_num(), operation.slot_num());
+      } break;
+
       default: {
         ASSERT(false, "unsupported operation. type=%d", static_cast<int>(operation.type()));
       }
@@ -394,6 +401,16 @@ RC MvccTrx::rollback()
                rid.to_string().c_str(), strrc(rc));
       } break;
 
+      case Operation::Type::UPDATE: {
+        // TODO: UPDATE 回滚需要保存旧数据
+        // 当前简化实现：UPDATE 操作在 rollback 时无法完全恢复旧值
+        // 完整实现需要在 Operation 中保存 old_record 数据或实现 undo log
+        LOG_WARN("UPDATE rollback is not fully implemented. trx_id=%d, table=%s, rid=%d.%d",
+                 trx_id_, operation.table()->name(), operation.page_num(), operation.slot_num());
+        // 简化处理：UPDATE 已经修改了数据和索引，rollback 时保持修改后的状态
+        // 生产环境需要实现完整的 undo log
+      } break;
+
       default: {
         ASSERT(false, "unsupported operation. type=%d", static_cast<int>(operation.type()));
       }
@@ -466,5 +483,23 @@ RC MvccTrx::redo(Db *db, const LogEntry &log_entry)
     } break;
   }
 
+  return RC::SUCCESS;
+}
+
+///// SC's modification ///////
+
+RC MvccTrx::update_record(Table *table, Record &old_record, Record &new_record){
+  // 1. 调用 table 层的 update_record_with_trx（内部会调用 engine）
+  RC rc = table->update_record_with_trx(old_record, new_record, this);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("failed to update record with trx. table=%s, rc=%s", table->name(), strrc(rc));
+    return rc;
+  }
+
+  // 2. 记录 UPDATE 操作到事务日志
+  operations_.push_back(Operation(Operation::Type::UPDATE, table, old_record.rid()));
+  
+  LOG_DEBUG("update record successfully. trx_id=%d, table=%s, rid=%s", 
+            trx_id_, table->name(), old_record.rid().to_string().c_str());
   return RC::SUCCESS;
 }

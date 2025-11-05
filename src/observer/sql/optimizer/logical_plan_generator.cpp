@@ -11,6 +11,7 @@ See the Mulan PSL v2 for more details. */
 //
 // Created by Wangyunlai on 2023/08/16.
 //
+#include <vector>
 
 #include "sql/optimizer/logical_plan_generator.h"
 
@@ -36,6 +37,10 @@ See the Mulan PSL v2 for more details. */
 #include "sql/stmt/stmt.h"
 
 #include "sql/expr/expression_iterator.h"
+
+#include "common/value.h"
+#include "sql/operator/update_logical_operator.hpp"
+#include "sql/stmt/update_stmt.h"
 
 using namespace std;
 using namespace common;
@@ -73,6 +78,12 @@ RC LogicalPlanGenerator::create(Stmt *stmt, unique_ptr<LogicalOperator> &logical
 
       rc = create_plan(explain_stmt, logical_operator);
     } break;
+
+    case StmtType::UPDATE: {
+      UpdateStmt* update_stmt = static_cast<UpdateStmt*>(stmt);
+      rc = create_plan(update_stmt, logical_operator);
+    } break;
+
     default: {
       rc = RC::UNIMPLEMENTED;
     }
@@ -356,4 +367,29 @@ RC LogicalPlanGenerator::create_group_by_plan(SelectStmt *select_stmt, unique_pt
                                                            std::move(aggregate_expressions));
   logical_operator = std::move(group_by_oper);
   return RC::SUCCESS;
+}
+
+////// SC's Modification /////
+RC LogicalPlanGenerator::create_plan(UpdateStmt *update_stmt, unique_ptr<LogicalOperator> &logical_operator){
+  // 拿到相关变量
+  Table* table = update_stmt->table();
+  FilterStmt* filter_stmt = update_stmt->filter_stmt();
+  unique_ptr<LogicalOperator> table_get_op(new TableGetLogicalOperator(table, ReadWriteMode::READ_WRITE));
+
+  unique_ptr<LogicalOperator> predicate_op;
+  RC rc = create_plan(filter_stmt, predicate_op);
+  if (rc != RC::SUCCESS) {
+    return rc;
+  }
+  // 创建逻辑算子
+  unique_ptr<LogicalOperator> update_op(new UpdateLogicalOperator(update_stmt));
+  if (predicate_op) {
+    predicate_op->add_child(std::move(table_get_op));
+    update_op->add_child(std::move(predicate_op));
+  } else {
+    update_op->add_child(std::move(table_get_op));
+  }
+
+  logical_operator = std::move(update_op);
+  return rc;
 }

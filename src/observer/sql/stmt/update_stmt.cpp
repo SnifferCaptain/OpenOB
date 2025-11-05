@@ -16,13 +16,11 @@ See the Mulan PSL v2 for more details. */
 #include "common/log/log.h"
 #include "storage/db/db.h"
 #include "storage/table/table.h"
+#include "sql/stmt/filter_stmt.h"
 
-UpdateStmt::UpdateStmt(Table *table, const char *attr_name, const Value *value, FilterStmt *filter_stmt):
-    table_(table),
-    value_(value),
-    attr_name_(attr_name),
-    filter_stmt_(filter_stmt){
-}
+UpdateStmt::UpdateStmt(Table *table, const FieldMeta *field_meta, const Value &value, FilterStmt *filter_stmt)
+    : table_(table), value_(value), field_meta_(field_meta), filter_stmt_(filter_stmt)
+{}
 
 UpdateStmt::~UpdateStmt(){
     if (nullptr != filter_stmt_) {
@@ -57,6 +55,6 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update, Stmt *&stmt){
         LOG_WARN("failed to create filter statement. rc=%d:%s", rc, strrc(rc));
         return rc;
     }
-    stmt = new UpdateStmt(table, field_name, &(update.value), filter_stmt);
+    stmt = new UpdateStmt(table, field_meta, update.value, filter_stmt);
     return RC::SUCCESS;
 }

@@ -12,8 +12,9 @@
 #include "sql/expr/expression.h"                        // 表达式相关
 #include "sql/operator/table_scan_physical_operator.h"  // 表扫描物理算子
 #include "sql/operator/predicate_physical_operator.h"   // 谓词物理算子
+#include "storage/field/field_meta.h"
 
-#include "sql/operator/update_operator.hpp"               // UPDATE物理算子
+#include "sql/operator/update_physical_operator.hpp"    // UPDATE物理算子 (physical)
 #include "sql/executor/update_executor.hpp"             // UPDATE执行器
 
 RC UpdateExecutor::execute(SQLStageEvent *sql_event) {
@@ -34,21 +35,24 @@ RC UpdateExecutor::execute(SQLStageEvent *sql_event) {
     UpdateStmt *update_stmt = static_cast<UpdateStmt *>(stmt);
     Table *table = update_stmt->table();
 
-    // 扫描算子,用于遍历表数据
+    // 扫描算子,用于遍历表数据（简单实现：未考虑 WHERE 条件）
     auto scan_op = std::make_unique<TableScanPhysicalOperator>(table, ReadWriteMode::READ_WRITE);
 
-    // 构造一个 ValueExpr（此处仅为示例，实际应根据 UPDATE 语句设置值）
-    Value value;
-    value.set_type(AttrType::INTS); // 设置类型为整数
-    auto value_expr = std::make_unique<ValueExpr>(value);
+    // 获取要更新的字段元信息和值
+    const FieldMeta *field_meta = update_stmt->field_meta();
+    if (field_meta == nullptr) {
+        LOG_WARN("[UpdateExecutor::execute] field meta missing");
+        return RC::SCHEMA_FIELD_MISSING;
+    }
 
-    // 谓词物理算子,用于过滤数据，实际应根据WHERE条件构造
-    auto pred_op = std::make_unique<PredicatePhysicalOperator>(std::move(value_expr));
-    pred_op->add_child(std::move(scan_op));
-
-    // 构造UPDATE算子继续嵌套
-    auto update_op = std::make_unique<UpdateOperator>(update_stmt, trx);
-    update_op->add_child(std::move(pred_op));
+    // 构造 UPDATE 物理算子并挂载子算子
+    const Value* value = update_stmt->values();
+    if (value == nullptr) {
+        LOG_WARN("[UpdateExecutor::execute] update value missing");
+        return RC::INVALID_ARGUMENT;
+    }
+    auto update_op = std::make_unique<UpdatePhysicalOperator>(table, field_meta, value);
+    update_op->add_child(std::move(scan_op));
 
     // 打开 UPDATE 算子，执行更新操作
     RC rc = update_op->open(trx);
@@ -56,5 +60,8 @@ RC UpdateExecutor::execute(SQLStageEvent *sql_event) {
         LOG_WARN("[UpdateExecutor::execute] failed to open update operator: %s", strrc(rc));
         return rc;
     }
-    return rc;
+    // 关闭算子释放资源
+    update_op->close();
+    return RC::SUCCESS;
 }
+// ********** TODO：fix this shit **********

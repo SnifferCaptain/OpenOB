@@ -103,6 +103,157 @@ RC HeapTableEngine::delete_record(const Record &record)
   return rc;
 }
 
+RC HeapTableEngine::insert_record_with_trx(Record &record, Trx *trx)
+{
+  RC rc = RC::SUCCESS;
+  
+  // 1. 插入记录到数据文件
+  rc = record_handler_->insert_record(record.data(), table_meta_->record_size(), &record.rid());
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Insert record failed. table name=%s, rc=%s", table_meta_->name(), strrc(rc));
+    return rc;
+  }
+
+  // 2. 插入索引项
+  rc = insert_entry_of_indexes(record.data(), record.rid());
+  if (rc != RC::SUCCESS) {
+    // 回滚：删除已插入的记录
+    RC rc2 = record_handler_->delete_record(&record.rid());
+    if (rc2 != RC::SUCCESS) {
+      LOG_ERROR("Failed to rollback record when insert index failed. table=%s, rc=%s", 
+                table_meta_->name(), strrc(rc2));
+    }
+    return rc;
+  }
+
+  // 3. 如果有事务，让事务处理可见性字段
+  // 事务会在记录中设置 begin_xid 和 end_xid
+  
+  LOG_DEBUG("Insert record with trx successfully. table=%s, rid=%s", 
+            table_meta_->name(), record.rid().to_string().c_str());
+  return RC::SUCCESS;
+}
+
+RC HeapTableEngine::delete_record_with_trx(const Record &record, Trx *trx)
+{
+  RC rc = RC::SUCCESS;
+
+  // 1. 检查事务可见性并标记删除（通过 visit_record 在页面锁保护下操作）
+  if (trx != nullptr) {
+    rc = record_handler_->visit_record(record.rid(), [&](Record &inplace_record) -> bool {
+      // 检查可见性
+      RC visibility_rc = trx->visit_record(table_, inplace_record, ReadWriteMode::READ_WRITE);
+      if (visibility_rc != RC::SUCCESS) {
+        rc = visibility_rc;
+        return false;
+      }
+      // 事务会在外部处理删除标记（设置 end_xid）
+      return false; // 这里不需要写回，事务层会处理
+    });
+
+    if (rc != RC::SUCCESS) {
+      LOG_TRACE("Record is not visible or locked. table=%s, rid=%s, rc=%s",
+                table_meta_->name(), record.rid().to_string().c_str(), strrc(rc));
+      return rc;
+    }
+  }
+
+  // 2. 删除索引项
+  rc = delete_entry_of_indexes(record.data(), record.rid(), false);
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Failed to delete index entries. table=%s, rc=%s", table_meta_->name(), strrc(rc));
+    return rc;
+  }
+
+  // 注意：实际的记录删除由事务在 commit 时处理（MVCC 模式）
+  // 或者在没有事务时立即删除
+  if (trx == nullptr) {
+    rc = record_handler_->delete_record(&record.rid());
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("Failed to delete record. table=%s, rid=%s, rc=%s",
+                table_meta_->name(), record.rid().to_string().c_str(), strrc(rc));
+      // 回滚索引
+      insert_entry_of_indexes(record.data(), record.rid());
+      return rc;
+    }
+  }
+
+  LOG_DEBUG("Delete record with trx successfully. table=%s, rid=%s", 
+            table_meta_->name(), record.rid().to_string().c_str());
+  return RC::SUCCESS;
+}
+
+RC HeapTableEngine::update_record_with_trx(const Record &old_record, const Record &new_record, Trx *trx)
+{
+  RC rc = RC::SUCCESS;
+
+  // 1. 检查事务可见性
+  if (trx != nullptr) {
+    Record current_record;
+    rc = get_record(old_record.rid(), current_record);
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("Failed to get record for visibility check. table=%s, rid=%s, rc=%s",
+                table_meta_->name(), old_record.rid().to_string().c_str(), strrc(rc));
+      return rc;
+    }
+
+    rc = trx->visit_record(table_, current_record, ReadWriteMode::READ_WRITE);
+    if (rc != RC::SUCCESS) {
+      LOG_TRACE("Record is not visible or locked. table=%s, rid=%s, rc=%s",
+                table_meta_->name(), old_record.rid().to_string().c_str(), strrc(rc));
+      return rc;
+    }
+  }
+
+  // 2. 删除旧索引项
+  rc = delete_entry_of_indexes(old_record.data(), old_record.rid(), false);
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Failed to delete old index entries. table=%s, rc=%s", table_meta_->name(), strrc(rc));
+    return rc;
+  }
+
+  // 3. 在页面锁保护下更新记录数据
+  rc = record_handler_->visit_record(old_record.rid(), [&](Record &inplace_record) -> bool {
+    if (inplace_record.data() == nullptr) {
+      LOG_ERROR("Invalid inplace record data. table=%s, rid=%s", 
+                table_meta_->name(), old_record.rid().to_string().c_str());
+      rc = RC::INTERNAL;
+      return false;
+    }
+    // 拷贝新记录数据
+    memcpy(inplace_record.data(), new_record.data(), table_meta_->record_size());
+    return true; // 返回 true 表示需要写回页面
+  });
+
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Failed to update record data. table=%s, rid=%s, rc=%s",
+              table_meta_->name(), old_record.rid().to_string().c_str(), strrc(rc));
+    // 回滚：恢复旧索引项
+    insert_entry_of_indexes(old_record.data(), old_record.rid());
+    return rc;
+  }
+
+  // 4. 插入新索引项
+  rc = insert_entry_of_indexes(new_record.data(), old_record.rid());
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Failed to insert new index entries. table=%s, rc=%s", table_meta_->name(), strrc(rc));
+    
+    // 回滚：恢复记录数据和旧索引
+    record_handler_->visit_record(old_record.rid(), [&](Record &inplace_record) -> bool {
+      memcpy(inplace_record.data(), old_record.data(), table_meta_->record_size());
+      return true;
+    });
+    
+    delete_entry_of_indexes(new_record.data(), old_record.rid(), false);
+    insert_entry_of_indexes(old_record.data(), old_record.rid());
+    return rc;
+  }
+
+  LOG_DEBUG("Update record with trx successfully. table=%s, rid=%s", 
+            table_meta_->name(), old_record.rid().to_string().c_str());
+  return RC::SUCCESS;
+}
+
 RC HeapTableEngine::get_record_scanner(RecordScanner *&scanner, Trx *trx, ReadWriteMode mode)
 {
   scanner = new HeapRecordScanner(table_, *data_buffer_pool_, trx, db_->log_handler(), mode, nullptr);

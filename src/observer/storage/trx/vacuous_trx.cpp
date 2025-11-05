@@ -43,3 +43,14 @@ RC VacuousTrx::commit() { return RC::SUCCESS; }
 RC VacuousTrx::rollback() { return RC::SUCCESS; }
 
 RC VacuousTrx::redo(Db *, const LogEntry &) { return RC::SUCCESS; }
+
+///// SC's modification ///////
+
+RC VacuousTrx::update_record(Table *table, Record &old_record, Record &new_record)
+{
+  if (nullptr == table) {
+    LOG_WARN("table is null when updating record");
+    return RC::INVALID_ARGUMENT;
+  }
+  return table->update_record_with_trx(old_record, new_record, this);
+}

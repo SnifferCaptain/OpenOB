@@ -126,7 +126,10 @@ private:
 class RecordPageHandler
 {
 public:
-  RecordPageHandler(StorageFormat storage_format) : storage_format_(storage_format) {}
+  RecordPageHandler(StorageFormat storage_format) : storage_format_(storage_format) {
+    page_header_ = new PageHeader();
+    frame_ = new Frame();
+  }
   virtual ~RecordPageHandler();
   static RecordPageHandler *create(StorageFormat format);
 
@@ -231,6 +234,9 @@ public:
    * @brief 当前页面是否已经没有空闲位置插入新的记录
    */
   bool is_full() const;
+
+  RC update_record(Record *rec);
+
 
 protected:
   /**
@@ -410,6 +416,8 @@ public:
   RC get_record(const RID &rid, Record &record);
 
   RC visit_record(const RID &rid, function<bool(Record &)> updater);
+
+  RC update_record(Record *rec);
 
 private:
   /**

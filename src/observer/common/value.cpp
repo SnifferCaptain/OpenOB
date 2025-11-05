@@ -30,6 +30,7 @@ Value::Value(const char *s, int len /*= 0*/) { set_string(s, len); }
 
 Value::Value(const string_t& s) { set_string(s.data(), s.size()); }
 
+Value::Value(int val, bool isDate) { set_date(val); }
 
 Value::Value(const Value &other)
 {
@@ -128,6 +129,10 @@ void Value::set_data(char *data, int length)
       value_.bool_value_ = *(int *)data != 0;
       length_            = length;
     } break;
+    case AttrType::DATES: {
+      value_.int_value_ = *(int *)data;
+      length_           = length;
+    } break;
     default: {
       LOG_WARN("unknown data type: %d", attr_type_);
     } break;
@@ -191,6 +196,12 @@ void Value::set_empty_string(int len)
   
 }
 
+void Value::set_date(int val){
+  attr_type_ = AttrType::DATES;
+  value_.int_value_ = val;
+  length_ = sizeof(val);
+}
+
 void Value::set_value(const Value &value)
 {
   switch (value.attr_type_) {
@@ -205,6 +216,9 @@ void Value::set_value(const Value &value)
     } break;
     case AttrType::BOOLEANS: {
       set_boolean(value.get_boolean());
+    } break;
+    case AttrType::DATES: {
+      set_date(value.get_int());
     } break;
     default: {
       ASSERT(false, "got an invalid value type");
@@ -267,6 +281,9 @@ int Value::get_int() const
     case AttrType::BOOLEANS: {
       return (int)(value_.bool_value_);
     }
+    case AttrType::DATES: {
+      return value_.int_value_;
+    }
     default: {
       LOG_WARN("unknown data type. type=%d", attr_type_);
       return 0;
@@ -295,6 +312,9 @@ float Value::get_float() const
     case AttrType::BOOLEANS: {
       return float(value_.bool_value_);
     } break;
+    case AttrType::DATES: {
+      return float(value_.int_value_);
+    } break; // eq ints
     default: {
       LOG_WARN("unknown data type. type=%d", attr_type_);
       return 0;

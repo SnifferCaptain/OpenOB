@@ -41,10 +41,10 @@ RC CommandExecutor::execute(SQLStageEvent *sql_event)
       rc = executor.execute(sql_event);
     } break;
 
-    case StmtType::UPDATE: {
-      UpdateExecutor executor;
-      rc = executor.execute(sql_event);
-    }
+    // case StmtType::UPDATE: {
+    //   UpdateExecutor executor;
+    //   rc = executor.execute(sql_event);
+    // }
     /////////////////////////////////
 
 

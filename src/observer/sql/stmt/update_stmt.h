@@ -17,6 +17,8 @@ See the Mulan PSL v2 for more details. */
 #include "common/sys/rc.h"
 #include "sql/stmt/stmt.h"
 #include "sql/stmt/filter_stmt.h"
+#include "common/value.h"
+#include "storage/field/field_meta.h"
 
 class Table;
 
@@ -27,34 +29,42 @@ class Table;
 class UpdateStmt : public Stmt{
 public:
     UpdateStmt() = default;
-    UpdateStmt(Table *table, const char *attr_name, const Value *value, FilterStmt *filter_stmt);
+    UpdateStmt(Table *table, const FieldMeta *field_meta, const Value &value, FilterStmt *filter_stmt);
     ~UpdateStmt() override;
 
-    // @brief 创建 UpdateStmt 对象
-    // @param db 数据库对象
-    // @param update SQL 解析节点
-    // @param stmt 输出参数，返回创建的语句对象
-    // @return 返回码，表示创建结果
+    /// @brief 创建 UpdateStmt 对象
+    /// @param db 数据库对象
+    /// @param update SQL 解析节点
+    /// @param stmt 输出参数，返回创建的语句对象
+    /// @return 返回码，表示创建结果
     static RC create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt);
 
-    // 获取表名
+    /// @brief 获取表
     Table *table() const {return table_;}
 
-    // 获取属性值
-    const Value *value() const { return value_; }
+    /// @brief 获取更新值
+    const Value *values() const { return &value_; }
+    const Value &value() const { return value_; }
 
-    // 获取过滤语句
+    /// @brief 获取过滤语句
     FilterStmt *filter_stmt() const { return filter_stmt_; }
 
-    // 获取语句类型
+    /// @brief 获取语句类型
     StmtType type() const override { return StmtType::UPDATE; }
 
-    // 获取属性名
-    const char *attr_name() const { return attr_name_; }
+    /// @brief 获取字段名
+    const char *attr_name() const { return field_meta_ != nullptr ? field_meta_->name() : nullptr; }
+
+    /// @brief 字段数量（当前固定为1）
+    int value_amount() const { return 1; }
+
+    /// @brief 获取字段元信息
+    const FieldMeta *field_meta() const { return field_meta_; }
+
 private:
-    Table *table_ = nullptr;
-    const Value *value_ = nullptr;
-    const char *attr_name_ = nullptr;
+    Table* table_ = nullptr;
+    Value value_;
+    const FieldMeta *field_meta_ = nullptr;
     FilterStmt *filter_stmt_ = nullptr;
 };
 

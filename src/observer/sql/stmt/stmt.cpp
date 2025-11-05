@@ -30,6 +30,8 @@ See the Mulan PSL v2 for more details. */
 #include "sql/stmt/show_tables_stmt.h"
 #include "sql/stmt/trx_begin_stmt.h"
 #include "sql/stmt/trx_end_stmt.h"
+
+#include "sql/parser/parse_defs.h"// ?
 #include "sql/stmt/drop_table_stmt.hpp"
 #include "sql/stmt/update_stmt.h"
 

@@ -36,6 +36,7 @@ public:
   friend class BooleanType;
   friend class CharType;
   friend class VectorType;
+  friend class DateType;
 
   Value() = default;
 
@@ -48,6 +49,7 @@ public:
   explicit Value(bool val);
   explicit Value(const char *s, int len = 0);
   explicit Value(const string_t &val);
+  explicit Value(int val, bool isDate);
 
   Value(const Value &other);
   Value(Value &&other);
@@ -92,6 +94,7 @@ public:
   void set_data(const char *data, int length) { this->set_data(const_cast<char *>(data), length); }
   void set_value(const Value &value);
   void set_boolean(bool val);
+  void set_date(int val);
 
   string to_string() const;
 

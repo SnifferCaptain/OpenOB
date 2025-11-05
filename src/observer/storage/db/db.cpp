@@ -445,6 +445,3 @@ RC Db::drop_table(const char *table_name){
   LOG_INFO("drop table success. table name=%s", table_name);
   return RC::SUCCESS;
 }
-
-
-// SnifferCaptain: 这个代码规范是我的话我不会通过pr
