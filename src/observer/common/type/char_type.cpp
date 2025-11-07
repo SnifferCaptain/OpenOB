@@ -29,6 +29,18 @@ RC CharType::set_value_from_str(Value &val, const string &data) const
 RC CharType::cast_to(const Value &val, AttrType type, Value &result) const
 {
   switch (type) {
+    case AttrType::DATES: {
+      // 将字符串转换为日期类型
+      DataType *date_type = DataType::type_instance(AttrType::DATES);
+      Value tmp_val;
+      RC rc = date_type->set_value_from_str(tmp_val, val.get_string());
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to cast string to date. string=%s", val.get_string().c_str());
+        return rc;
+      }
+      result = tmp_val;
+      return RC::SUCCESS;
+    }
     default: return RC::UNIMPLEMENTED;
   }
   return RC::SUCCESS;
@@ -38,6 +50,9 @@ int CharType::cast_cost(AttrType type)
 {
   if (type == AttrType::CHARS) {
     return 0;
+  }
+  if (type == AttrType::DATES) {
+    return 1;  // 字符串可以转换为日期，成本为 1
   }
   return INT32_MAX;
 }

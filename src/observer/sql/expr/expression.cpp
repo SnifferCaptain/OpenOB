@@ -142,8 +142,34 @@ ComparisonExpr::~ComparisonExpr() {}
 RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &result) const
 {
   RC  rc         = RC::SUCCESS;
-  int cmp_result = left.compare(right);
   result         = false;
+  
+  // 如果类型不同，需要进行类型转换
+  const Value *left_ptr = &left;
+  const Value *right_ptr = &right;
+  Value left_converted;
+  Value right_converted;
+  
+  if (left.attr_type() != right.attr_type()) {
+    // 尝试将 right 转换为 left 的类型
+    rc = Value::cast_to(right, left.attr_type(), right_converted);
+    if (rc == RC::SUCCESS) {
+      right_ptr = &right_converted;
+    } else {
+      // 如果失败，尝试将 left 转换为 right 的类型
+      rc = Value::cast_to(left, right.attr_type(), left_converted);
+      if (rc == RC::SUCCESS) {
+        left_ptr = &left_converted;
+      } else {
+        LOG_WARN("failed to cast values for comparison. left type=%d, right type=%d", 
+                 left.attr_type(), right.attr_type());
+        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
+    }
+  }
+  
+  int cmp_result = left_ptr->compare(*right_ptr);
+  
   switch (comp_) {
     case EQUAL_TO: {
       result = (0 == cmp_result);
