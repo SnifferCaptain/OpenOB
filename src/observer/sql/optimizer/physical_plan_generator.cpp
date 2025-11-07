@@ -500,7 +500,7 @@ RC PhysicalPlanGenerator::create_plan(UpdateLogicalOperator &update_op, std::uni
     return RC::INVALID_ARGUMENT;
   }
   
-  op = unique_ptr<PhysicalOperator>(new UpdatePhysicalOperator(table, const_cast<FieldMeta*>(field_meta), const_cast<Value*>(value)));
+  op = unique_ptr<PhysicalOperator>(new UpdatePhysicalOperator(table, field_meta, value));
   if (child_physical_op) {
     op->add_child(std::move(child_physical_op));
   }

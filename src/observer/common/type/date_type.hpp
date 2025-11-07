@@ -26,6 +26,12 @@ public:
     /// @brief 取负数
     RC negative(const Value &val, Value &result) const override;
 
+    /// @brief 类型转换
+    RC cast_to(const Value &val, AttrType type, Value &result) const override;
+
+    /// @brief 转换成本
+    int cast_cost(AttrType type) override;
+
     /// @brief 从字符串设置值
     RC set_value_from_str(Value &val, const string &data) const override;
 
