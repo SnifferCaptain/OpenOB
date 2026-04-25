@@ -8,9 +8,12 @@ EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
 MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 See the Mulan PSL v2 for more details. */
 
+#include <cstring>
+
 #include "storage/table/heap_table_engine.h"
 #include "storage/record/heap_record_scanner.h"
 #include "common/log/log.h"
+#include "common/value.h"
 #include "storage/index/bplus_tree_index.h"
 #include "storage/common/meta_util.h"
 #include "storage/db/db.h"
@@ -100,6 +103,71 @@ RC HeapTableEngine::delete_record(const Record &record)
            table_meta_->name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
   }
   rc = record_handler_->delete_record(&record.rid());
+  return rc;
+}
+
+RC HeapTableEngine::update_record_with_trx(const Record &old_record, const Record &new_record, Trx *trx)
+{
+  if (trx == nullptr) {
+    return RC::INVALID_ARGUMENT;
+  }
+
+  Record old_copy;
+  RC     rc = old_copy.copy_data(old_record.data(), old_record.len());
+  if (rc != RC::SUCCESS) {
+    return rc;
+  }
+  old_copy.set_rid(old_record.rid());
+
+  Record new_copy;
+  rc = new_copy.copy_data(new_record.data(), new_record.len());
+  if (rc != RC::SUCCESS) {
+    return rc;
+  }
+  new_copy.set_rid(new_record.rid());
+
+  if (memcmp(old_copy.data(), new_copy.data(), old_copy.len()) == 0) {
+    return RC::SUCCESS;
+  }
+
+  // 先删旧索引，再改记录，最后补新索引。
+  // 这样中途失败时还能用旧记录恢复现场。
+  rc = delete_entry_of_indexes(old_copy.data(), old_copy.rid(), true);
+  if (rc != RC::SUCCESS) {
+    RC restore_rc = insert_entry_of_indexes(old_copy.data(), old_copy.rid());
+    if (restore_rc != RC::SUCCESS) {
+      LOG_WARN("failed to restore indexes after delete failed. rc=%s", strrc(restore_rc));
+    }
+    return rc;
+  }
+
+  rc = record_handler_->visit_record(old_copy.rid(), [&](Record &record) -> bool {
+    record = new_copy;
+    return true;
+  });
+  if (rc != RC::SUCCESS) {
+    RC restore_rc = insert_entry_of_indexes(old_copy.data(), old_copy.rid());
+    if (restore_rc != RC::SUCCESS) {
+      LOG_WARN("failed to restore indexes after update failed. rc=%s", strrc(restore_rc));
+    }
+    return rc;
+  }
+
+  rc = insert_entry_of_indexes(new_copy.data(), new_copy.rid());
+  if (rc != RC::SUCCESS) {
+    RC rollback_rc = record_handler_->visit_record(old_copy.rid(), [&](Record &record) -> bool {
+      record = old_copy;
+      return true;
+    });
+    if (rollback_rc != RC::SUCCESS) {
+      LOG_WARN("failed to rollback record after update failed. rc=%s", strrc(rollback_rc));
+    }
+
+    RC restore_rc = insert_entry_of_indexes(old_copy.data(), old_copy.rid());
+    if (restore_rc != RC::SUCCESS) {
+      LOG_WARN("failed to restore old indexes after update failed. rc=%s", strrc(restore_rc));
+    }
+  }
   return rc;
 }
 

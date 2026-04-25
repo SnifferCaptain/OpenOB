@@ -16,6 +16,8 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/project_physical_operator.h"
 #include "sql/operator/insert_logical_operator.h"
 #include "sql/operator/insert_physical_operator.h"
+#include "sql/operator/update_logical_operator.h"
+#include "sql/operator/update_physical_operator.h"
 #include "sql/operator/explain_logical_operator.h"
 #include "sql/operator/explain_physical_operator.h"
 #include "sql/operator/calc_logical_operator.h"
@@ -169,6 +171,32 @@ void LogicalDeleteToDelete::transform(OperatorNode* input,
   }
 
   transformed->emplace_back(std::move(delete_phys_oper));
+}
+
+// -------------------------------------------------------------------------------------------------
+// PhysicalUpdate
+// -------------------------------------------------------------------------------------------------
+LogicalUpdateToUpdate::LogicalUpdateToUpdate()
+{
+  type_ = RuleType::UPDATE_TO_PHYSICAL;
+  match_pattern_ = unique_ptr<Pattern>(new Pattern(OpType::LOGICALUPDATE));
+  auto child = new Pattern(OpType::LEAF);
+  match_pattern_->add_child(child);
+}
+
+void LogicalUpdateToUpdate::transform(OperatorNode *input,
+    std::vector<std::unique_ptr<OperatorNode>> *transformed,
+    OptimizerContext *context) const
+{
+  auto update_oper = dynamic_cast<UpdateLogicalOperator *>(input);
+
+  auto update_phys_oper = unique_ptr<PhysicalOperator>(
+      new UpdatePhysicalOperator(update_oper->table(), update_oper->attribute_name(), update_oper->value()));
+  for (auto &child : update_oper->children()) {
+    update_phys_oper->add_general_child(child.get());
+  }
+
+  transformed->emplace_back(std::move(update_phys_oper));
 }
 
 // -------------------------------------------------------------------------------------------------

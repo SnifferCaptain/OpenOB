@@ -8,41 +8,31 @@ EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
 MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 See the Mulan PSL v2 for more details. */
 
-//
-// Created by Wangyunlai on 2022/5/22.
-//
-
 #pragma once
 
-#include "sql/stmt/stmt.h"
+#include "sql/operator/logical_operator.h"
 
 class Table;
-class FilterStmt;
 
 /**
- * @brief 更新语句
- * @ingroup Statement
+ * @brief 逻辑算子，更新
+ * @ingroup LogicalOperator
  */
-class UpdateStmt : public Stmt
+class UpdateLogicalOperator : public LogicalOperator
 {
 public:
-  UpdateStmt() = default;
+  UpdateLogicalOperator(Table *table, const string &attribute_name, const Value &value);
+  virtual ~UpdateLogicalOperator() = default;
 
-  UpdateStmt(Table *table, const string &attribute_name, const Value &value, FilterStmt *filter_stmt = nullptr);
-  ~UpdateStmt() override;
-
-  static RC create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt);
+  LogicalOperatorType type() const override { return LogicalOperatorType::UPDATE; }
+  OpType get_op_type() const override { return OpType::LOGICALUPDATE; }
 
   Table *table() const { return table_; }
   const string &attribute_name() const { return attribute_name_; }
   const Value &value() const { return value_; }
-  FilterStmt *filter_stmt() const { return filter_stmt_; }
-
-  StmtType type() const override { return StmtType::UPDATE; }
 
 private:
   Table *table_ = nullptr;
   string attribute_name_;
   Value value_;
-  FilterStmt *filter_stmt_ = nullptr;
 };
