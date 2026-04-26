@@ -35,6 +35,7 @@ public:
   friend class FloatType;
   friend class BooleanType;
   friend class CharType;
+  friend class DateType;
   friend class VectorType;
 
   Value() = default;
@@ -108,6 +109,7 @@ public:
    * 如果当前的类型与期望获取的类型不符，就会执行转换操作
    */
   int      get_int() const;
+  int      get_date() const;
   float    get_float() const;
   string   get_string() const;
   string_t get_string_t() const;
@@ -115,6 +117,7 @@ public:
 
 public:
   void set_int(int val);
+  void set_date(int val);
   void set_float(float val);
   void set_string(const char *s, int len = 0);
   void set_empty_string(int len);
