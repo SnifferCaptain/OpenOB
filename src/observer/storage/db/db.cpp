@@ -176,6 +176,48 @@ RC Db::create_table(const char *table_name, span<const AttrInfoSqlNode> attribut
   return RC::SUCCESS;
 }
 
+RC Db::drop_table(const char *table_name)
+{
+  if (common::is_blank(table_name)) {
+    LOG_WARN("invalid table name");
+    return RC::INVALID_ARGUMENT;
+  }
+
+  // 先确认表当前已经打开，避免删除一个不存在或已经被释放的对象。
+  auto iter = opened_tables_.find(table_name);
+  if (iter == opened_tables_.end()) {
+    LOG_WARN("table not exists in db. table=%s", table_name);
+    return RC::SCHEMA_TABLE_NOT_EXIST;
+  }
+
+  Table *table = iter->second;
+  vector<string> remove_files;
+  // 统一收集表相关文件，后续按文件逐个清理。
+  remove_files.emplace_back(table_meta_file(path_.c_str(), table_name));
+  remove_files.emplace_back(table_data_file(path_.c_str(), table_name));
+  remove_files.emplace_back(table_lob_file(path_.c_str(), table_name));
+  for (int i = 0; i < table->table_meta().index_num(); i++) {
+    const IndexMeta *index_meta = table->table_meta().index(i);
+    remove_files.emplace_back(table_index_file(path_.c_str(), table_name, index_meta->name()));
+  }
+
+  // 先从内存结构中摘除，再释放对象，避免后续再访问到悬空表句柄。
+  opened_tables_.erase(iter);
+  delete table;
+
+  RC rc = RC::SUCCESS;
+  for (const string &file_name : remove_files) {
+    error_code ec;
+    filesystem::remove(file_name, ec);
+    if (ec) {
+      LOG_WARN("failed to remove file while dropping table. file=%s, err=%s", file_name.c_str(), ec.message().c_str());
+      // 保留错误状态，让上层知道清理不是完全成功。
+      rc = RC::IOERR_WRITE;
+    }
+  }
+  return rc;
+}
+
 Table *Db::find_table(const char *table_name) const
 {
   unordered_map<string, Table *>::const_iterator iter = opened_tables_.find(table_name);
