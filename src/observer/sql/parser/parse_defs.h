@@ -90,8 +90,30 @@ struct SelectSqlNode
 {
   vector<unique_ptr<Expression>> expressions;  ///< 查询的表达式
   vector<string>                 relations;    ///< 查询的表
+  vector<struct JoinTableSqlNode> join_tables; ///< from 子句中的表和显式 join 条件
   vector<ConditionSqlNode>       conditions;   ///< 查询条件，使用AND串联起来多个条件
   vector<unique_ptr<Expression>> group_by;     ///< group by clause
+};
+
+/**
+ * @brief 描述 from 子句中的一个表项
+ * @ingroup SQLParser
+ * @details 如果这个表是通过 inner join 引入的，那么 conditions 中保存
+ * 当前 join 的 on 条件。对于 from 的第一个表和逗号分隔引入的表，conditions 为空。
+ */
+struct JoinTableSqlNode
+{
+  string                   relation_name;  ///< 当前表名
+  vector<ConditionSqlNode> conditions;     ///< 当前表对应的 on 条件
+};
+
+/**
+ * @brief 描述 from 子句中的表序列
+ * @ingroup SQLParser
+ */
+struct JoinTablesSqlNode
+{
+  vector<JoinTableSqlNode> join_tables;  ///< from 子句按顺序展开后的表项
 };
 
 /**

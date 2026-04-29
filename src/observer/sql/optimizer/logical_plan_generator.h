@@ -15,13 +15,16 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include "common/lang/memory.h"
+#include "common/lang/vector.h"
 #include "common/sys/rc.h"
 #include "common/type/attr_type.h"
+#include "sql/expr/expression.h"
 
 class Stmt;
 class CalcStmt;
 class SelectStmt;
 class FilterStmt;
+class FilterUnit;
 class InsertStmt;
 class DeleteStmt;
 class UpdateStmt;
@@ -40,6 +43,7 @@ private:
   RC create_plan(CalcStmt *calc_stmt, unique_ptr<LogicalOperator> &logical_operator);
   RC create_plan(SelectStmt *select_stmt, unique_ptr<LogicalOperator> &logical_operator);
   RC create_plan(FilterStmt *filter_stmt, unique_ptr<LogicalOperator> &logical_operator);
+  RC create_filter_expressions(const vector<FilterUnit *> &filter_units, vector<unique_ptr<Expression>> &cmp_exprs);
   RC create_plan(InsertStmt *insert_stmt, unique_ptr<LogicalOperator> &logical_operator);
   RC create_plan(DeleteStmt *delete_stmt, unique_ptr<LogicalOperator> &logical_operator);
   RC create_plan(UpdateStmt *update_stmt, unique_ptr<LogicalOperator> &logical_operator);

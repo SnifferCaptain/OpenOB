@@ -14,7 +14,9 @@ See the Mulan PSL v2 for more details. */
 
 #include "sql/operator/join_physical_operator.h"
 
-NestedLoopJoinPhysicalOperator::NestedLoopJoinPhysicalOperator() {}
+NestedLoopJoinPhysicalOperator::NestedLoopJoinPhysicalOperator(unique_ptr<Expression> predicate)
+    : predicate_(std::move(predicate))
+{}
 
 RC NestedLoopJoinPhysicalOperator::open(Trx *trx)
 {
@@ -36,31 +38,41 @@ RC NestedLoopJoinPhysicalOperator::open(Trx *trx)
 
 RC NestedLoopJoinPhysicalOperator::next()
 {
-  bool left_need_step = (left_tuple_ == nullptr);
-  RC   rc             = RC::SUCCESS;
-  if (round_done_) {
-    left_need_step = true;
-  } else {
+  RC rc = RC::SUCCESS;
+  while (RC::SUCCESS == rc) {
+    bool left_need_step = (left_tuple_ == nullptr);
+    if (round_done_) {
+      left_need_step = true;
+    }
+
+    if (left_need_step) {
+      rc = left_next();
+      if (rc != RC::SUCCESS) {
+        return rc;
+      }
+    }
+
     rc = right_next();
     if (rc != RC::SUCCESS) {
       if (rc == RC::RECORD_EOF) {
-        left_need_step = true;
+        rc = RC::SUCCESS;
+        round_done_ = true;
+        continue;
       } else {
         return rc;
       }
-    } else {
-      return rc;  // got one tuple from right
     }
-  }
 
-  if (left_need_step) {
-    rc = left_next();
+    bool matched = false;
+    rc = filter_current_tuple(matched);
     if (rc != RC::SUCCESS) {
       return rc;
     }
-  }
 
-  rc = right_next();
+    if (matched) {
+      return RC::SUCCESS;
+    }
+  }
   return rc;
 }
 
@@ -130,4 +142,21 @@ RC NestedLoopJoinPhysicalOperator::right_next()
   right_tuple_ = right_->current_tuple();
   joined_tuple_.set_right(right_tuple_);
   return rc;
+}
+
+RC NestedLoopJoinPhysicalOperator::filter_current_tuple(bool &matched)
+{
+  matched = true;
+  if (predicate_ == nullptr) {
+    return RC::SUCCESS;
+  }
+
+  Value value;
+  RC rc = predicate_->get_value(joined_tuple_, value);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  matched = value.get_boolean();
+  return RC::SUCCESS;
 }

@@ -29,6 +29,11 @@ SelectStmt::~SelectStmt()
     delete filter_stmt_;
     filter_stmt_ = nullptr;
   }
+
+  for (FilterStmt *join_filter_stmt : join_filter_stmts_) {
+    delete join_filter_stmt;
+  }
+  join_filter_stmts_.clear();
 }
 
 RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
@@ -43,8 +48,9 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
   // collect tables in `from` statement
   vector<Table *>                tables;
   unordered_map<string, Table *> table_map;
-  for (size_t i = 0; i < select_sql.relations.size(); i++) {
-    const char *table_name = select_sql.relations[i].c_str();
+  const vector<JoinTableSqlNode> &join_tables = select_sql.join_tables;
+  for (size_t i = 0; i < join_tables.size(); i++) {
+    const char *table_name = join_tables[i].relation_name.c_str();
     if (nullptr == table_name) {
       LOG_WARN("invalid argument. relation name is null. index=%d", i);
       return RC::INVALID_ARGUMENT;
@@ -100,12 +106,36 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
     return rc;
   }
 
+  vector<FilterStmt *> join_filter_stmts(join_tables.size(), nullptr);
+  for (size_t i = 0; i < join_tables.size(); i++) {
+    const vector<ConditionSqlNode> &conditions = join_tables[i].conditions;
+    if (conditions.empty()) {
+      continue;
+    }
+
+    rc = FilterStmt::create(db,
+        default_table,
+        &table_map,
+        conditions.data(),
+        static_cast<int>(conditions.size()),
+        join_filter_stmts[i]);
+    if (OB_FAIL(rc)) {
+      LOG_WARN("failed to create join filter stmt. rc=%s", strrc(rc));
+      for (FilterStmt *join_filter_stmt : join_filter_stmts) {
+        delete join_filter_stmt;
+      }
+      delete filter_stmt;
+      return rc;
+    }
+  }
+
   // everything alright
   SelectStmt *select_stmt = new SelectStmt();
 
   select_stmt->tables_.swap(tables);
   select_stmt->query_expressions_.swap(bound_expressions);
   select_stmt->filter_stmt_ = filter_stmt;
+  select_stmt->join_filter_stmts_.swap(join_filter_stmts);
   select_stmt->group_by_.swap(group_by_expressions);
   stmt                      = select_stmt;
   return RC::SUCCESS;

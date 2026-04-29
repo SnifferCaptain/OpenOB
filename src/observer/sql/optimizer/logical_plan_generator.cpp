@@ -38,6 +38,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/stmt/update_stmt.h"
 
 #include "sql/expr/expression_iterator.h"
+#include "storage/field/field.h"
 
 using namespace std;
 using namespace common;
@@ -102,20 +103,78 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
   last_oper = &table_oper;
   unique_ptr<LogicalOperator> predicate_oper;
 
-  RC rc = create_plan(select_stmt->filter_stmt(), predicate_oper);
+  RC rc = RC::SUCCESS;
+  unordered_map<Table *, vector<FilterUnit *>> pushdown_filter_units;
+  vector<FilterUnit *>                         remain_filter_units;
+  FilterStmt                                  *filter_stmt = select_stmt->filter_stmt();
+  if (filter_stmt != nullptr) {
+    const vector<FilterUnit *> &filter_units = filter_stmt->filter_units();
+    for (FilterUnit *filter_unit : filter_units) {
+      unordered_set<Table *> related_tables;
+      const FilterObj       &left  = filter_unit->left();
+      const FilterObj       &right = filter_unit->right();
+      if (left.is_attr) {
+        related_tables.insert(const_cast<Table *>(left.field.table()));
+      }
+      if (right.is_attr) {
+        related_tables.insert(const_cast<Table *>(right.field.table()));
+      }
+
+      if (related_tables.size() == 1) {
+        Table *table = *related_tables.begin();
+        pushdown_filter_units[table].push_back(filter_unit);
+      } else {
+        remain_filter_units.push_back(filter_unit);
+      }
+    }
+  }
+
+  vector<unique_ptr<Expression>> remain_cmp_exprs;
+  rc = create_filter_expressions(remain_filter_units, remain_cmp_exprs);
   if (OB_FAIL(rc)) {
-    LOG_WARN("failed to create predicate logical plan. rc=%s", strrc(rc));
+    LOG_WARN("failed to create predicate expressions. rc=%s", strrc(rc));
     return rc;
   }
 
-  const vector<Table *> &tables = select_stmt->tables();
-  for (Table *table : tables) {
+  if (!remain_cmp_exprs.empty()) {
+    unique_ptr<ConjunctionExpr> conjunction_expr(new ConjunctionExpr(ConjunctionExpr::Type::AND, remain_cmp_exprs));
+    predicate_oper = unique_ptr<PredicateLogicalOperator>(new PredicateLogicalOperator(std::move(conjunction_expr)));
+  }
+
+  const vector<Table *>      &tables             = select_stmt->tables();
+  const vector<FilterStmt *> &join_filter_stmts  = select_stmt->join_filter_stmts();
+  for (size_t i = 0; i < tables.size(); i++) {
+    Table *table = tables[i];
 
     unique_ptr<LogicalOperator> table_get_oper(new TableGetLogicalOperator(table, ReadWriteMode::READ_ONLY));
+    auto pushdown_iter = pushdown_filter_units.find(table);
+    if (pushdown_iter != pushdown_filter_units.end()) {
+      vector<unique_ptr<Expression>> pushdown_exprs;
+      rc = create_filter_expressions(pushdown_iter->second, pushdown_exprs);
+      if (OB_FAIL(rc)) {
+        LOG_WARN("failed to create pushdown expressions. rc=%s", strrc(rc));
+        return rc;
+      }
+      static_cast<TableGetLogicalOperator *>(table_get_oper.get())->set_predicates(std::move(pushdown_exprs));
+    }
+
     if (table_oper == nullptr) {
       table_oper = std::move(table_get_oper);
     } else {
       JoinLogicalOperator *join_oper = new JoinLogicalOperator;
+      if (i < join_filter_stmts.size() && join_filter_stmts[i] != nullptr) {
+        vector<unique_ptr<Expression>> join_exprs;
+        rc = create_filter_expressions(join_filter_stmts[i]->filter_units(), join_exprs);
+        if (OB_FAIL(rc)) {
+          delete join_oper;
+          LOG_WARN("failed to create join expressions. rc=%s", strrc(rc));
+          return rc;
+        }
+
+        for (unique_ptr<Expression> &join_expr : join_exprs) {
+          join_oper->add_join_predicate(std::move(join_expr));
+        }
+      }
       join_oper->add_child(std::move(table_oper));
       join_oper->add_child(std::move(table_get_oper));
       table_oper = unique_ptr<LogicalOperator>(join_oper);
@@ -157,11 +216,10 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
   return RC::SUCCESS;
 }
 
-RC LogicalPlanGenerator::create_plan(FilterStmt *filter_stmt, unique_ptr<LogicalOperator> &logical_operator)
+RC LogicalPlanGenerator::create_filter_expressions(
+    const vector<FilterUnit *> &filter_units, vector<unique_ptr<Expression>> &cmp_exprs)
 {
-  RC                                  rc = RC::SUCCESS;
-  vector<unique_ptr<Expression>> cmp_exprs;
-  const vector<FilterUnit *>    &filter_units = filter_stmt->filter_units();
+  RC                            rc = RC::SUCCESS;
   for (const FilterUnit *filter_unit : filter_units) {
     const FilterObj &filter_obj_left  = filter_unit->left();
     const FilterObj &filter_obj_right = filter_unit->right();
@@ -215,6 +273,18 @@ RC LogicalPlanGenerator::create_plan(FilterStmt *filter_stmt, unique_ptr<Logical
 
     ComparisonExpr *cmp_expr = new ComparisonExpr(filter_unit->comp(), std::move(left), std::move(right));
     cmp_exprs.emplace_back(cmp_expr);
+  }
+
+  return rc;
+}
+
+RC LogicalPlanGenerator::create_plan(FilterStmt *filter_stmt, unique_ptr<LogicalOperator> &logical_operator)
+{
+  RC rc = RC::SUCCESS;
+  vector<unique_ptr<Expression>> cmp_exprs;
+  rc = create_filter_expressions(filter_stmt->filter_units(), cmp_exprs);
+  if (OB_FAIL(rc)) {
+    return rc;
   }
 
   unique_ptr<PredicateLogicalOperator> predicate_oper;

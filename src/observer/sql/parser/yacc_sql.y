@@ -100,6 +100,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         AND
         SET
         ON
+        INNER
+        JOIN
         LOAD
         DATA
         INFILE
@@ -134,6 +136,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   vector<ConditionSqlNode> *                 condition_list;
   vector<RelAttrSqlNode> *                   rel_attr_list;
   vector<string> *                           relation_list;
+  JoinTablesSqlNode *                        join_tables;
   vector<string> *                           key_list;
   char *                                     cstring;
   int                                        number;
@@ -150,6 +153,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %destructor { delete $$; } <condition_list>
 // %destructor { delete $$; } <rel_attr_list>
 %destructor { delete $$; } <relation_list>
+%destructor { delete $$; } <join_tables>
 %destructor { delete $$; } <key_list>
 
 %token <number> NUMBER
@@ -171,10 +175,13 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <value_list>          value_list
 %type <condition_list>      where
 %type <condition_list>      condition_list
+%type <condition_list>      join_condition_list
 %type <cstring>             storage_format
 %type <key_list>            primary_key
 %type <key_list>            attr_list
 %type <relation_list>       rel_list
+%type <join_tables>         from_clause
+%type <join_tables>         table_reference
 %type <expression>          expression
 %type <expression>          aggregate_expression
 %type <expression_list>     expression_list
@@ -485,7 +492,7 @@ update_stmt:      /*  update 语句的语法解析树*/
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT expression_list FROM rel_list where group_by
+    SELECT expression_list FROM from_clause where group_by
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -494,12 +501,16 @@ select_stmt:        /*  select 语句的语法解析树*/
       }
 
       if ($4 != nullptr) {
-        $$->selection.relations.swap(*$4);
+        $$->selection.join_tables.swap($4->join_tables);
+        for (const JoinTableSqlNode &join_table : $$->selection.join_tables) {
+          $$->selection.relations.push_back(join_table.relation_name);
+        }
         delete $4;
       }
 
       if ($5 != nullptr) {
-        $$->selection.conditions.swap(*$5);
+        $$->selection.conditions.insert(
+            $$->selection.conditions.end(), $5->begin(), $5->end());
         delete $5;
       }
 
@@ -509,6 +520,53 @@ select_stmt:        /*  select 语句的语法解析树*/
       }
     }
     ;
+from_clause:
+    table_reference
+    {
+      $$ = $1;
+    }
+    | table_reference COMMA from_clause
+    {
+      $$ = $1;
+      if ($3 != nullptr) {
+        $$->join_tables.insert($$->join_tables.end(), $3->join_tables.begin(), $3->join_tables.end());
+        delete $3;
+      }
+    }
+    ;
+
+table_reference:
+    relation
+    {
+      $$ = new JoinTablesSqlNode;
+      JoinTableSqlNode join_table;
+      join_table.relation_name = $1;
+      $$->join_tables.emplace_back(std::move(join_table));
+    }
+    | table_reference INNER JOIN relation ON join_condition_list
+    {
+      $$ = $1;
+      JoinTableSqlNode join_table;
+      join_table.relation_name = $4;
+      if ($6 != nullptr) {
+        join_table.conditions.swap(*$6);
+        delete $6;
+      }
+      $$->join_tables.emplace_back(std::move(join_table));
+    }
+    | table_reference JOIN relation ON join_condition_list
+    {
+      $$ = $1;
+      JoinTableSqlNode join_table;
+      join_table.relation_name = $3;
+      if ($5 != nullptr) {
+        join_table.conditions.swap(*$5);
+        delete $5;
+      }
+      $$->join_tables.emplace_back(std::move(join_table));
+    }
+    ;
+
 calc_stmt:
     CALC expression_list
     {
@@ -621,6 +679,21 @@ where:
       $$ = $2;  
     }
     ;
+join_condition_list:
+    condition
+    {
+      $$ = new vector<ConditionSqlNode>;
+      $$->emplace_back(*$1);
+      delete $1;
+    }
+    | condition AND join_condition_list
+    {
+      $$ = $3;
+      $$->emplace_back(*$1);
+      delete $1;
+    }
+    ;
+
 condition_list:
     /* empty */
     {

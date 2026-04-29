@@ -14,7 +14,9 @@ See the Mulan PSL v2 for more details. */
 
 #include "sql/operator/nested_loop_join_physical_operator.h"
 
-NestedLoopJoinPhysicalOperator::NestedLoopJoinPhysicalOperator() {}
+NestedLoopJoinPhysicalOperator::NestedLoopJoinPhysicalOperator(unique_ptr<Expression> predicate)
+    : predicate_(std::move(predicate))
+{}
 
 RC NestedLoopJoinPhysicalOperator::open(Trx *trx)
 {
@@ -59,6 +61,16 @@ RC NestedLoopJoinPhysicalOperator::next()
       } else {
         return rc;
       }
+    }
+
+    bool matched = false;
+    rc = filter_current_tuple(matched);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+
+    if (matched) {
+      return RC::SUCCESS;
     }
   }
   return rc;
@@ -130,4 +142,21 @@ RC NestedLoopJoinPhysicalOperator::right_next()
   right_tuple_ = right_->current_tuple();
   joined_tuple_.set_right(right_tuple_);
   return rc;
+}
+
+RC NestedLoopJoinPhysicalOperator::filter_current_tuple(bool &matched)
+{
+  matched = true;
+  if (predicate_ == nullptr) {
+    return RC::SUCCESS;
+  }
+
+  Value value;
+  RC rc = predicate_->get_value(joined_tuple_, value);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  matched = value.get_boolean();
+  return RC::SUCCESS;
 }
