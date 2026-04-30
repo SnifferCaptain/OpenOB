@@ -16,8 +16,25 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/string.h"
 #include "common/log/log.h"
 #include "common/sys/rc.h"
+#include "common/type/data_type.h"
 #include "storage/db/db.h"
 #include "storage/table/table.h"
+
+static AttrType filter_obj_type(const FilterObj &obj)
+{
+  if (obj.is_attr) {
+    return obj.field.attr_type();
+  }
+  return obj.value.attr_type();
+}
+
+static int implicit_cast_cost(AttrType from, AttrType to)
+{
+  if (from == to) {
+    return 0;
+  }
+  return DataType::type_instance(from)->cast_cost(to);
+}
 
 FilterStmt::~FilterStmt()
 {
@@ -127,6 +144,43 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, unordered_map<st
 
   filter_unit->set_comp(comp);
 
-  // 检查两个类型是否能够比较
+  AttrType left_type  = filter_obj_type(filter_unit->left());
+  AttrType right_type = filter_obj_type(filter_unit->right());
+  if (left_type == right_type) {
+    return rc;
+  }
+
+  int left_to_right_cost = implicit_cast_cost(left_type, right_type);
+  int right_to_left_cost = implicit_cast_cost(right_type, left_type);
+  if (left_to_right_cost == INT32_MAX && right_to_left_cost == INT32_MAX) {
+    LOG_WARN("cannot compare values with different types. left=%s, right=%s",
+        attr_type_to_string(left_type), attr_type_to_string(right_type));
+    return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+  }
+
+  if (!filter_unit->left().is_attr && left_to_right_cost <= right_to_left_cost && left_to_right_cost != INT32_MAX) {
+    Value cast_value;
+    rc = Value::cast_to(filter_unit->left().value, right_type, cast_value);
+    if (OB_FAIL(rc)) {
+      LOG_WARN("failed to cast left value. from=%s, to=%s, rc=%s",
+          attr_type_to_string(left_type), attr_type_to_string(right_type), strrc(rc));
+      return rc;
+    }
+    FilterObj filter_obj;
+    filter_obj.init_value(cast_value);
+    filter_unit->set_left(filter_obj);
+  } else if (!filter_unit->right().is_attr && right_to_left_cost < left_to_right_cost && right_to_left_cost != INT32_MAX) {
+    Value cast_value;
+    rc = Value::cast_to(filter_unit->right().value, left_type, cast_value);
+    if (OB_FAIL(rc)) {
+      LOG_WARN("failed to cast right value. from=%s, to=%s, rc=%s",
+          attr_type_to_string(right_type), attr_type_to_string(left_type), strrc(rc));
+      return rc;
+    }
+    FilterObj filter_obj;
+    filter_obj.init_value(cast_value);
+    filter_unit->set_right(filter_obj);
+  }
+
   return rc;
 }
