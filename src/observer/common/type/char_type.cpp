@@ -12,6 +12,8 @@ See the Mulan PSL v2 for more details. */
 #include "common/log/log.h"
 #include "common/type/char_type.h"
 #include "common/type/date_type.h"
+#include "common/type/float_type.h"
+#include "common/type/integer_type.h"
 #include "common/value.h"
 
 int CharType::compare(const Value &left, const Value &right) const
@@ -30,6 +32,26 @@ RC CharType::set_value_from_str(Value &val, const string &data) const
 RC CharType::cast_to(const Value &val, AttrType type, Value &result) const
 {
   switch (type) {
+    case AttrType::INTS: {
+      Value cast_value;
+      IntegerType integer_type;
+      RC rc = integer_type.set_value_from_str(cast_value, val.get_string());
+      if (OB_FAIL(rc)) {
+        return rc;
+      }
+      result = cast_value;
+      return RC::SUCCESS;
+    }
+    case AttrType::FLOATS: {
+      Value cast_value;
+      FloatType float_type;
+      RC rc = float_type.set_value_from_str(cast_value, val.get_string());
+      if (OB_FAIL(rc)) {
+        return rc;
+      }
+      result = cast_value;
+      return RC::SUCCESS;
+    }
     case AttrType::DATES: {
       int date_value = 0;
       if (!DateType::parse_date(val.get_string(), date_value)) {
@@ -47,6 +69,8 @@ int CharType::cast_cost(AttrType type)
 {
   if (type == AttrType::CHARS) {
     return 0;
+  } else if (type == AttrType::INTS || type == AttrType::FLOATS) {
+    return 1;
   } else if (type == AttrType::DATES) {
     return 1;
   }
