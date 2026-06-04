@@ -14,6 +14,18 @@ See the Mulan PSL v2 for more details. */
 #include "common/type/date_type.h"
 #include "common/value.h"
 
+#include <cctype>
+#include <cstdlib>
+
+static float string_to_number(const string &text)
+{
+  const char *data = text.c_str();
+  if (data[0] == '\0' || (!isdigit(static_cast<unsigned char>(data[0])) && data[0] != '.')) {
+    return 0;
+  }
+  return strtof(data, nullptr);
+}
+
 int CharType::compare(const Value &left, const Value &right) const
 {
   ASSERT(left.attr_type() == AttrType::CHARS && right.attr_type() == AttrType::CHARS, "invalid type");
@@ -30,6 +42,14 @@ RC CharType::set_value_from_str(Value &val, const string &data) const
 RC CharType::cast_to(const Value &val, AttrType type, Value &result) const
 {
   switch (type) {
+    case AttrType::INTS: {
+      result.set_int(static_cast<int>(string_to_number(val.get_string())));
+      return RC::SUCCESS;
+    }
+    case AttrType::FLOATS: {
+      result.set_float(string_to_number(val.get_string()));
+      return RC::SUCCESS;
+    }
     case AttrType::DATES: {
       int date_value = 0;
       if (!DateType::parse_date(val.get_string(), date_value)) {
@@ -47,6 +67,8 @@ int CharType::cast_cost(AttrType type)
 {
   if (type == AttrType::CHARS) {
     return 0;
+  } else if (type == AttrType::INTS || type == AttrType::FLOATS) {
+    return 1;
   } else if (type == AttrType::DATES) {
     return 1;
   }
