@@ -689,7 +689,7 @@ join_condition_list:
     | condition AND join_condition_list
     {
       $$ = $3;
-      $$->emplace_back(*$1);
+      $$->insert($$->begin(), *$1);
       delete $1;
     }
     ;
@@ -706,7 +706,7 @@ condition_list:
     }
     | condition AND condition_list {
       $$ = $3;
-      $$->emplace_back(*$1);
+      $$->insert($$->begin(), *$1);
       delete $1;
     }
     ;
