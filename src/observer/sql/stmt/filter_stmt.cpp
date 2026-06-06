@@ -17,6 +17,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/log/log.h"
 #include "common/sys/rc.h"
 #include "common/type/data_type.h"
+#include "sql/parser/expression_binder.h"
 #include "storage/db/db.h"
 #include "storage/table/table.h"
 
@@ -34,6 +35,39 @@ static int implicit_cast_cost(AttrType from, AttrType to)
     return 0;
   }
   return DataType::type_instance(from)->cast_cost(to);
+}
+
+static RC bind_filter_expr(
+    unordered_map<string, Table *> *tables, Table *default_table, shared_ptr<Expression> expr, unique_ptr<Expression> &bound_expr)
+{
+  if (expr == nullptr) {
+    return RC::INVALID_ARGUMENT;
+  }
+
+  BinderContext binder_context;
+  if (tables != nullptr) {
+    for (const auto &table_entry : *tables) {
+      binder_context.add_table(table_entry.second);
+    }
+  } else if (default_table != nullptr) {
+    binder_context.add_table(default_table);
+  }
+
+  unique_ptr<Expression> expr_copy = expr->copy();
+  vector<unique_ptr<Expression>> bound_expressions;
+  ExpressionBinder binder(binder_context);
+  RC rc = binder.bind_expression(expr_copy, bound_expressions);
+  if (rc != RC::SUCCESS) {
+    return rc;
+  }
+
+  if (bound_expressions.size() != 1) {
+    LOG_WARN("invalid condition expression count. count=%d", static_cast<int>(bound_expressions.size()));
+    return RC::INVALID_ARGUMENT;
+  }
+
+  bound_expr = std::move(bound_expressions.front());
+  return RC::SUCCESS;
 }
 
 FilterStmt::~FilterStmt()
@@ -107,6 +141,28 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, unordered_map<st
   }
 
   filter_unit = new FilterUnit;
+  filter_unit->set_comp(comp);
+
+  if (condition.left_expr != nullptr || condition.right_expr != nullptr) {
+    unique_ptr<Expression> left_expr;
+    unique_ptr<Expression> right_expr;
+    rc = bind_filter_expr(tables, default_table, condition.left_expr, left_expr);
+    if (rc != RC::SUCCESS) {
+      delete filter_unit;
+      filter_unit = nullptr;
+      return rc;
+    }
+    rc = bind_filter_expr(tables, default_table, condition.right_expr, right_expr);
+    if (rc != RC::SUCCESS) {
+      delete filter_unit;
+      filter_unit = nullptr;
+      return rc;
+    }
+
+    filter_unit->set_left_expr(std::move(left_expr));
+    filter_unit->set_right_expr(std::move(right_expr));
+    return RC::SUCCESS;
+  }
 
   if (condition.left_is_attr) {
     Table           *table = nullptr;
@@ -141,8 +197,6 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, unordered_map<st
     filter_obj.init_value(condition.right_value);
     filter_unit->set_right(filter_obj);
   }
-
-  filter_unit->set_comp(comp);
 
   AttrType left_type  = filter_obj_type(filter_unit->left());
   AttrType right_type = filter_obj_type(filter_unit->right());

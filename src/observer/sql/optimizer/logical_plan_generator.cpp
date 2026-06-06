@@ -110,6 +110,11 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
   if (filter_stmt != nullptr) {
     const vector<FilterUnit *> &filter_units = filter_stmt->filter_units();
     for (FilterUnit *filter_unit : filter_units) {
+      if (filter_unit->has_expr()) {
+        remain_filter_units.push_back(filter_unit);
+        continue;
+      }
+
       unordered_set<Table *> related_tables;
       const FilterObj       &left  = filter_unit->left();
       const FilterObj       &right = filter_unit->right();
@@ -221,16 +226,23 @@ RC LogicalPlanGenerator::create_filter_expressions(
 {
   RC                            rc = RC::SUCCESS;
   for (const FilterUnit *filter_unit : filter_units) {
-    const FilterObj &filter_obj_left  = filter_unit->left();
-    const FilterObj &filter_obj_right = filter_unit->right();
+    unique_ptr<Expression> left;
+    unique_ptr<Expression> right;
+    if (filter_unit->has_expr()) {
+      left  = filter_unit->left_expr()->copy();
+      right = filter_unit->right_expr()->copy();
+    } else {
+      const FilterObj &filter_obj_left  = filter_unit->left();
+      const FilterObj &filter_obj_right = filter_unit->right();
 
-    unique_ptr<Expression> left(filter_obj_left.is_attr
-                                    ? static_cast<Expression *>(new FieldExpr(filter_obj_left.field))
-                                    : static_cast<Expression *>(new ValueExpr(filter_obj_left.value)));
+      left.reset(filter_obj_left.is_attr
+                     ? static_cast<Expression *>(new FieldExpr(filter_obj_left.field))
+                     : static_cast<Expression *>(new ValueExpr(filter_obj_left.value)));
 
-    unique_ptr<Expression> right(filter_obj_right.is_attr
-                                     ? static_cast<Expression *>(new FieldExpr(filter_obj_right.field))
-                                     : static_cast<Expression *>(new ValueExpr(filter_obj_right.value)));
+      right.reset(filter_obj_right.is_attr
+                      ? static_cast<Expression *>(new FieldExpr(filter_obj_right.field))
+                      : static_cast<Expression *>(new ValueExpr(filter_obj_right.value)));
+    }
 
     if (left->value_type() != right->value_type()) {
       auto left_to_right_cost = implicit_cast_cost(left->value_type(), right->value_type());
@@ -415,7 +427,7 @@ RC LogicalPlanGenerator::create_group_by_plan(SelectStmt *select_stmt, unique_pt
     return rc;
   };
 
- bool found_unbound_column = false;
+  bool found_unbound_column = false;
   function<RC(unique_ptr<Expression>&)> find_unbound_column = [&](unique_ptr<Expression> &expr) -> RC {
     RC rc = RC::SUCCESS;
     if (expr->type() == ExprType::AGGREGATION) {
@@ -424,12 +436,11 @@ RC LogicalPlanGenerator::create_group_by_plan(SelectStmt *select_stmt, unique_pt
       // do nothing
     } else if (expr->type() == ExprType::FIELD) {
       found_unbound_column = true;
-    }else {
+    } else {
       rc = ExpressionIterator::iterate_child_expr(*expr, find_unbound_column);
     }
     return rc;
   };
-  
 
   for (unique_ptr<Expression> &expression : query_expressions) {
     bind_group_by_expr(expression);

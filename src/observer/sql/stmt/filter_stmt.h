@@ -26,7 +26,7 @@ class FieldMeta;
 
 struct FilterObj
 {
-  bool  is_attr;
+  bool  is_attr = false;
   Field field;
   Value value;
 
@@ -55,14 +55,21 @@ public:
 
   void set_left(const FilterObj &obj) { left_ = obj; }
   void set_right(const FilterObj &obj) { right_ = obj; }
+  void set_left_expr(unique_ptr<Expression> expr) { left_expr_ = std::move(expr); }
+  void set_right_expr(unique_ptr<Expression> expr) { right_expr_ = std::move(expr); }
 
   const FilterObj &left() const { return left_; }
   const FilterObj &right() const { return right_; }
+  const unique_ptr<Expression> &left_expr() const { return left_expr_; }
+  const unique_ptr<Expression> &right_expr() const { return right_expr_; }
+  bool has_expr() const { return left_expr_ != nullptr || right_expr_ != nullptr; }
 
 private:
-  CompOp    comp_ = NO_OP;
-  FilterObj left_;
-  FilterObj right_;
+  CompOp                 comp_ = NO_OP;
+  FilterObj              left_;
+  FilterObj              right_;
+  unique_ptr<Expression> left_expr_;
+  unique_ptr<Expression> right_expr_;
 };
 
 /**

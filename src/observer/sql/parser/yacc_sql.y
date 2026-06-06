@@ -50,6 +50,17 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   return expr;
 }
 
+Value *create_value_from_expression(Expression *expr)
+{
+  Value value;
+  if (expr == nullptr || expr->try_get_value(value) != RC::SUCCESS) {
+    delete expr;
+    return nullptr;
+  }
+  delete expr;
+  return new Value(value);
+}
+
 %}
 
 %define api.pure full
@@ -429,16 +440,22 @@ insert_stmt:        /*insert   语句的语法解析树*/
     ;
 
 value_list:
-    value
+    expression
     {
       $$ = new vector<Value>;
-      $$->emplace_back(*$1);
-      delete $1;
+      Value *value = create_value_from_expression($1);
+      if (value != nullptr) {
+        $$->emplace_back(*value);
+        delete value;
+      }
     }
-    | value_list COMMA value { 
+    | value_list COMMA expression {
       $$ = $1;
-      $$->emplace_back(*$3);
-      delete $3;
+      Value *value = create_value_from_expression($3);
+      if (value != nullptr) {
+        $$->emplace_back(*value);
+        delete value;
+      }
     }
     ;
 value:
@@ -711,53 +728,12 @@ condition_list:
     }
     ;
 condition:
-    rel_attr comp_op value
+    expression comp_op expression
     {
       $$ = new ConditionSqlNode;
-      $$->left_is_attr = 1;
-      $$->left_attr = *$1;
-      $$->right_is_attr = 0;
-      $$->right_value = *$3;
+      $$->left_expr.reset($1);
+      $$->right_expr.reset($3);
       $$->comp = $2;
-
-      delete $1;
-      delete $3;
-    }
-    | value comp_op value 
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_is_attr = 0;
-      $$->left_value = *$1;
-      $$->right_is_attr = 0;
-      $$->right_value = *$3;
-      $$->comp = $2;
-
-      delete $1;
-      delete $3;
-    }
-    | rel_attr comp_op rel_attr
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_is_attr = 1;
-      $$->left_attr = *$1;
-      $$->right_is_attr = 1;
-      $$->right_attr = *$3;
-      $$->comp = $2;
-
-      delete $1;
-      delete $3;
-    }
-    | value comp_op rel_attr
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_is_attr = 0;
-      $$->left_value = *$1;
-      $$->right_is_attr = 1;
-      $$->right_attr = *$3;
-      $$->comp = $2;
-
-      delete $1;
-      delete $3;
     }
     ;
 
