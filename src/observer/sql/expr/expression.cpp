@@ -154,6 +154,10 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
   Value left_value  = left;
   Value right_value = right;
   result            = false;
+  if (left.attr_type() == AttrType::UNDEFINED || right.attr_type() == AttrType::UNDEFINED) {
+    return RC::SUCCESS;
+  }
+
   if (left.attr_type() != right.attr_type()) {
     int left_to_right_cost = expression_cast_cost(left.attr_type(), right.attr_type());
     int right_to_left_cost = expression_cast_cost(right.attr_type(), left.attr_type());
@@ -398,6 +402,11 @@ RC ArithmeticExpr::calc_value(const Value &left_value, const Value &right_value,
 
   const AttrType target_type = value_type();
   value.set_type(target_type);
+  if (left_value.attr_type() == AttrType::UNDEFINED ||
+      (right_ != nullptr && right_value.attr_type() == AttrType::UNDEFINED)) {
+    value.set_type(AttrType::UNDEFINED);
+    return RC::SUCCESS;
+  }
 
   switch (arithmetic_type_) {
     case Type::ADD: {
