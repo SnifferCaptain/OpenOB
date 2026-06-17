@@ -62,9 +62,13 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
       return RC::SCHEMA_TABLE_NOT_EXIST;
     }
 
-    binder_context.add_table(table);
+    const char *alias_name = join_tables[i].alias_name.empty() ? nullptr : join_tables[i].alias_name.c_str();
+    binder_context.add_table(table, alias_name);
     tables.push_back(table);
     table_map.insert({table_name, table});
+    if (!join_tables[i].alias_name.empty()) {
+      table_map.insert({join_tables[i].alias_name, table});
+    }
   }
 
   // collect query fields in `select` statement

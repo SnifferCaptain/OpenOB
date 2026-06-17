@@ -22,14 +22,15 @@ public:
   BinderContext()          = default;
   virtual ~BinderContext() = default;
 
-  void add_table(Table *table) { query_tables_.push_back(table); }
+  void add_table(Table *table, const char *alias_name = nullptr);
 
   Table *find_table(const char *table_name) const;
 
   const vector<Table *> &query_tables() const { return query_tables_; }
 
 private:
-  vector<Table *> query_tables_;
+  vector<Table *>                query_tables_;
+  unordered_map<string, Table *> table_map_;
 };
 
 /**

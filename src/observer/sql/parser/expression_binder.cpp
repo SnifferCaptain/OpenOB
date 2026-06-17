@@ -21,14 +21,36 @@ See the Mulan PSL v2 for more details. */
 
 using namespace common;
 
+void BinderContext::add_table(Table *table, const char *alias_name)
+{
+  if (table == nullptr) {
+    return;
+  }
+
+  auto iter = ranges::find(query_tables_, table);
+  if (iter == query_tables_.end()) {
+    query_tables_.push_back(table);
+  }
+
+  table_map_[table->name()] = table;
+  if (!is_blank(alias_name)) {
+    table_map_[alias_name] = table;
+  }
+}
+
 Table *BinderContext::find_table(const char *table_name) const
 {
+  auto iter = table_map_.find(table_name);
+  if (iter != table_map_.end()) {
+    return iter->second;
+  }
+
   auto pred = [table_name](Table *table) { return 0 == strcasecmp(table_name, table->name()); };
-  auto iter = ranges::find_if(query_tables_, pred);
-  if (iter == query_tables_.end()) {
+  auto table_iter = ranges::find_if(query_tables_, pred);
+  if (table_iter == query_tables_.end()) {
     return nullptr;
   }
-  return *iter;
+  return *table_iter;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

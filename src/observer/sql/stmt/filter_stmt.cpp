@@ -47,7 +47,7 @@ static RC bind_filter_expr(
   BinderContext binder_context;
   if (tables != nullptr) {
     for (const auto &table_entry : *tables) {
-      binder_context.add_table(table_entry.second);
+      binder_context.add_table(table_entry.second, table_entry.first.c_str());
     }
   } else if (default_table != nullptr) {
     binder_context.add_table(default_table);

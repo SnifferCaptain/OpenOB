@@ -220,6 +220,7 @@ Value *create_value_from_expression(Expression *expr)
 %type <relation_list>       rel_list
 %type <join_tables>         from_clause
 %type <join_tables>         table_reference
+%type <cstring>             table_alias
 %type <expression>          expression
 %type <expression>          select_expression
 %type <expression>          function_expression
@@ -589,34 +590,58 @@ from_clause:
     ;
 
 table_reference:
-    relation
+    relation table_alias
     {
       $$ = new JoinTablesSqlNode;
       JoinTableSqlNode join_table;
       join_table.relation_name = $1;
+      if ($2 != nullptr) {
+        join_table.alias_name = $2;
+      }
       $$->join_tables.emplace_back(std::move(join_table));
     }
-    | table_reference INNER JOIN relation ON join_condition_list
+    | table_reference INNER JOIN relation table_alias ON join_condition_list
     {
       $$ = $1;
       JoinTableSqlNode join_table;
       join_table.relation_name = $4;
+      if ($5 != nullptr) {
+        join_table.alias_name = $5;
+      }
+      if ($7 != nullptr) {
+        join_table.conditions.swap(*$7);
+        delete $7;
+      }
+      $$->join_tables.emplace_back(std::move(join_table));
+    }
+    | table_reference JOIN relation table_alias ON join_condition_list
+    {
+      $$ = $1;
+      JoinTableSqlNode join_table;
+      join_table.relation_name = $3;
+      if ($4 != nullptr) {
+        join_table.alias_name = $4;
+      }
       if ($6 != nullptr) {
         join_table.conditions.swap(*$6);
         delete $6;
       }
       $$->join_tables.emplace_back(std::move(join_table));
     }
-    | table_reference JOIN relation ON join_condition_list
+    ;
+
+table_alias:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | ID
     {
       $$ = $1;
-      JoinTableSqlNode join_table;
-      join_table.relation_name = $3;
-      if ($5 != nullptr) {
-        join_table.conditions.swap(*$5);
-        delete $5;
-      }
-      $$->join_tables.emplace_back(std::move(join_table));
+    }
+    | AS ID
+    {
+      $$ = $2;
     }
     ;
 

@@ -43,6 +43,56 @@ See the Mulan PSL v2 for more details. */
 using namespace std;
 using namespace common;
 
+static RC collect_expr_tables(Expression &expr, unordered_set<Table *> &tables)
+{
+  if (expr.type() == ExprType::FIELD) {
+    auto *field_expr = static_cast<FieldExpr *>(&expr);
+    tables.insert(const_cast<Table *>(field_expr->field().table()));
+    return RC::SUCCESS;
+  }
+
+  auto collect_child_tables = [&tables](unique_ptr<Expression> &child) -> RC {
+    if (child == nullptr) {
+      return RC::SUCCESS;
+    }
+    return collect_expr_tables(*child, tables);
+  };
+
+  return ExpressionIterator::iterate_child_expr(expr, collect_child_tables);
+}
+
+static RC collect_filter_unit_tables(FilterUnit *filter_unit, unordered_set<Table *> &tables)
+{
+  if (filter_unit == nullptr) {
+    return RC::INVALID_ARGUMENT;
+  }
+
+  RC rc = RC::SUCCESS;
+  if (filter_unit->has_expr()) {
+    if (filter_unit->left_expr() != nullptr) {
+      rc = collect_expr_tables(*filter_unit->left_expr(), tables);
+      if (OB_FAIL(rc)) {
+        return rc;
+      }
+    }
+    if (filter_unit->right_expr() != nullptr) {
+      rc = collect_expr_tables(*filter_unit->right_expr(), tables);
+    }
+    return rc;
+  }
+
+  const FilterObj &left  = filter_unit->left();
+  const FilterObj &right = filter_unit->right();
+  if (left.is_attr) {
+    tables.insert(const_cast<Table *>(left.field.table()));
+  }
+  if (right.is_attr) {
+    tables.insert(const_cast<Table *>(right.field.table()));
+  }
+
+  return RC::SUCCESS;
+}
+
 RC LogicalPlanGenerator::create(Stmt *stmt, unique_ptr<LogicalOperator> &logical_operator)
 {
   RC rc = RC::SUCCESS;
@@ -110,19 +160,11 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
   if (filter_stmt != nullptr) {
     const vector<FilterUnit *> &filter_units = filter_stmt->filter_units();
     for (FilterUnit *filter_unit : filter_units) {
-      if (filter_unit->has_expr()) {
-        remain_filter_units.push_back(filter_unit);
-        continue;
-      }
-
       unordered_set<Table *> related_tables;
-      const FilterObj       &left  = filter_unit->left();
-      const FilterObj       &right = filter_unit->right();
-      if (left.is_attr) {
-        related_tables.insert(const_cast<Table *>(left.field.table()));
-      }
-      if (right.is_attr) {
-        related_tables.insert(const_cast<Table *>(right.field.table()));
+      rc = collect_filter_unit_tables(filter_unit, related_tables);
+      if (OB_FAIL(rc)) {
+        LOG_WARN("failed to collect filter tables. rc=%s", strrc(rc));
+        return rc;
       }
 
       if (related_tables.size() == 1) {

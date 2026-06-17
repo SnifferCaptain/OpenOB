@@ -106,6 +106,7 @@ struct SelectSqlNode
 struct JoinTableSqlNode
 {
   string                   relation_name;  ///< 当前表名
+  string                   alias_name;     ///< 当前表别名
   vector<ConditionSqlNode> conditions;     ///< 当前表对应的 on 条件
 };
 
