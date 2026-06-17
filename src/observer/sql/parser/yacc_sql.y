@@ -110,6 +110,7 @@ Value *create_value_from_expression(Expression *expr)
         INDEX
         CALC
         SELECT
+        AS
         DESC
         SHOW
         SYNC
@@ -653,6 +654,11 @@ select_expression:
     {
       $$ = $1;
       $$->set_name($2);
+    }
+    | expression AS ID
+    {
+      $$ = $1;
+      $$->set_name($3);
     }
     ;
 expression:

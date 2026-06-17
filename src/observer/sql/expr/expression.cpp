@@ -751,7 +751,9 @@ AttrType FunctionExpr::value_type() const
   switch (function_type_) {
     case Type::INVALID: return AttrType::UNDEFINED;
     case Type::LENGTH:
-    case Type::ROUND: return AttrType::INTS;
+      return AttrType::INTS;
+    case Type::ROUND:
+      return children_.size() == 2 ? AttrType::FLOATS : AttrType::INTS;
     case Type::DATE_FORMAT: return AttrType::CHARS;
   }
   return AttrType::UNDEFINED;
@@ -777,9 +779,21 @@ RC FunctionExpr::calc_value(const vector<Value> &values, Value &value) const
       return RC::SUCCESS;
     }
     case Type::ROUND: {
-      if (values.size() != 1 || values[0].attr_type() != AttrType::FLOATS) {
+      if ((values.size() != 1 && values.size() != 2) || values[0].attr_type() != AttrType::FLOATS) {
         return RC::SCHEMA_FIELD_TYPE_MISMATCH;
       }
+
+      if (values.size() == 2) {
+        if (values[1].attr_type() != AttrType::INTS) {
+          return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+        }
+
+        const int scale = values[1].get_int();
+        const float multiplier = std::pow(10.0F, scale);
+        value.set_float(std::round(values[0].get_float() * multiplier) / multiplier);
+        return RC::SUCCESS;
+      }
+
       value.set_int(static_cast<int>(std::round(values[0].get_float())));
       return RC::SUCCESS;
     }

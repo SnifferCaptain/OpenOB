@@ -399,7 +399,10 @@ RC ExpressionBinder::bind_function_expression(
       }
     } break;
     case FunctionExpr::Type::ROUND: {
-      if (children.size() != 1 || children[0]->value_type() != AttrType::FLOATS) {
+      if ((children.size() != 1 && children.size() != 2) || children[0]->value_type() != AttrType::FLOATS) {
+        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
+      if (children.size() == 2 && children[1]->value_type() != AttrType::INTS) {
         return RC::SCHEMA_FIELD_TYPE_MISMATCH;
       }
     } break;
