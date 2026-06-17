@@ -50,6 +50,32 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   return expr;
 }
 
+bool is_aggregate_function(const char *function_name)
+{
+  return 0 == strcasecmp(function_name, "count") ||
+         0 == strcasecmp(function_name, "sum") ||
+         0 == strcasecmp(function_name, "avg") ||
+         0 == strcasecmp(function_name, "max") ||
+         0 == strcasecmp(function_name, "min");
+}
+
+Expression *create_function_expression(const char *function_name,
+                                       vector<unique_ptr<Expression>> *children,
+                                       const char *sql_string,
+                                       YYLTYPE *llocp)
+{
+  if (is_aggregate_function(function_name) && children != nullptr && children->size() == 1) {
+    Expression *expr = create_aggregate_expression(function_name, children->front().release(), sql_string, llocp);
+    delete children;
+    return expr;
+  }
+
+  FunctionExpr *expr = new FunctionExpr(function_name, std::move(*children));
+  expr->set_name(token_name(sql_string, llocp));
+  delete children;
+  return expr;
+}
+
 Value *create_value_from_expression(Expression *expr)
 {
   Value value;
@@ -194,7 +220,7 @@ Value *create_value_from_expression(Expression *expr)
 %type <join_tables>         from_clause
 %type <join_tables>         table_reference
 %type <expression>          expression
-%type <expression>          aggregate_expression
+%type <expression>          function_expression
 %type <expression_list>     expression_list
 %type <expression_list>     group_by
 %type <cstring>             fields_terminated_by
@@ -643,14 +669,22 @@ expression:
       $$->set_name(token_name(sql_string, &@$));
       delete $1;
     }
-    | aggregate_expression {
+    | function_expression {
       $$ = $1;
     }
     ;
 
-aggregate_expression:
+function_expression:
     ID LBRACE expression RBRACE {
-      $$ = create_aggregate_expression($1, $3, sql_string, &@$);
+      vector<unique_ptr<Expression>> *children = new vector<unique_ptr<Expression>>;
+      children->emplace_back($3);
+      $$ = create_function_expression($1, children, sql_string, &@$);
+    }
+    | ID LBRACE expression COMMA expression RBRACE {
+      vector<unique_ptr<Expression>> *children = new vector<unique_ptr<Expression>>;
+      children->emplace_back($3);
+      children->emplace_back($5);
+      $$ = create_function_expression($1, children, sql_string, &@$);
     }
     ;
 

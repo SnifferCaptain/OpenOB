@@ -47,6 +47,7 @@ enum class ExprType
   CONJUNCTION,  ///< 多个表达式使用同一种关系(AND或OR)来联结
   ARITHMETIC,   ///< 算术运算
   AGGREGATION,  ///< 聚合运算
+  FUNCTION,     ///< 普通函数
 };
 
 /**
@@ -437,6 +438,42 @@ private:
   Type                   arithmetic_type_;
   unique_ptr<Expression> left_;
   unique_ptr<Expression> right_;
+};
+
+class FunctionExpr : public Expression
+{
+public:
+  enum class Type
+  {
+    INVALID,
+    LENGTH,
+    ROUND,
+    DATE_FORMAT,
+  };
+
+public:
+  FunctionExpr(const char *function_name, vector<unique_ptr<Expression>> children);
+  virtual ~FunctionExpr() = default;
+
+  unique_ptr<Expression> copy() const override;
+  bool                   equal(const Expression &other) const override;
+  ExprType               type() const override { return ExprType::FUNCTION; }
+  AttrType               value_type() const override;
+  int                    value_length() const override;
+
+  RC get_value(const Tuple &tuple, Value &value) const override;
+  RC get_column(Chunk &chunk, Column &column) override;
+  RC try_get_value(Value &value) const override;
+
+  Type function_type() const { return function_type_; }
+  vector<unique_ptr<Expression>> &children() { return children_; }
+
+private:
+  RC calc_value(const vector<Value> &values, Value &value) const;
+
+private:
+  Type                           function_type_;
+  vector<unique_ptr<Expression>> children_;
 };
 
 class UnboundAggregateExpr : public Expression

@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/log/log.h"
 #include "common/lang/string.h"
 #include "common/lang/ranges.h"
+#include "common/type/date_type.h"
 #include "sql/parser/expression_binder.h"
 #include "sql/expr/expression_iterator.h"
 
@@ -84,6 +85,10 @@ RC ExpressionBinder::bind_expression(unique_ptr<Expression> &expr, vector<unique
 
     case ExprType::ARITHMETIC: {
       return bind_arithmetic_expression(expr, bound_expressions);
+    } break;
+
+    case ExprType::FUNCTION: {
+      return bind_function_expression(expr, bound_expressions);
     } break;
 
     case ExprType::AGGREGATION: {
@@ -350,6 +355,73 @@ RC ExpressionBinder::bind_arithmetic_expression(
     if (right.get() != right_expr.get()) {
       right_expr.reset(right.release());
     }
+  }
+
+  bound_expressions.emplace_back(std::move(expr));
+  return RC::SUCCESS;
+}
+
+RC ExpressionBinder::bind_function_expression(
+    unique_ptr<Expression> &expr, vector<unique_ptr<Expression>> &bound_expressions)
+{
+  if (nullptr == expr) {
+    return RC::SUCCESS;
+  }
+
+  auto function_expr = static_cast<FunctionExpr *>(expr.get());
+
+  vector<unique_ptr<Expression>>  child_bound_expressions;
+  vector<unique_ptr<Expression>> &children = function_expr->children();
+
+  for (unique_ptr<Expression> &child_expr : children) {
+    child_bound_expressions.clear();
+
+    RC rc = bind_expression(child_expr, child_bound_expressions);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+
+    if (child_bound_expressions.size() != 1) {
+      LOG_WARN("invalid children number of function expression: %d", child_bound_expressions.size());
+      return RC::INVALID_ARGUMENT;
+    }
+
+    unique_ptr<Expression> &child = child_bound_expressions[0];
+    if (child.get() != child_expr.get()) {
+      child_expr.reset(child.release());
+    }
+  }
+
+  switch (function_expr->function_type()) {
+    case FunctionExpr::Type::LENGTH: {
+      if (children.size() != 1 || children[0]->value_type() != AttrType::CHARS) {
+        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
+    } break;
+    case FunctionExpr::Type::ROUND: {
+      if (children.size() != 1 || children[0]->value_type() != AttrType::FLOATS) {
+        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
+    } break;
+    case FunctionExpr::Type::DATE_FORMAT: {
+      if (children.size() != 2 || children[1]->value_type() != AttrType::CHARS) {
+        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
+      if (children[0]->value_type() == AttrType::CHARS) {
+        Value value;
+        int   date_value = 0;
+        if (children[0]->type() != ExprType::VALUE ||
+            children[0]->try_get_value(value) != RC::SUCCESS ||
+            !DateType::parse_date(value.get_string(), date_value)) {
+          return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+        }
+      } else if (children[0]->value_type() != AttrType::DATES) {
+        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
+    } break;
+    case FunctionExpr::Type::INVALID: {
+      return RC::INVALID_ARGUMENT;
+    } break;
   }
 
   bound_expressions.emplace_back(std::move(expr));
