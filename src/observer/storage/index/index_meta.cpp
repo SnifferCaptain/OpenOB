@@ -21,6 +21,7 @@ See the Mulan PSL v2 for more details. */
 
 const static Json::StaticString FIELD_NAME("name");
 const static Json::StaticString FIELD_FIELD_NAME("field_name");
+const static Json::StaticString FIELD_FIELD_NAMES("field_names");
 
 RC IndexMeta::init(const char *name, const FieldMeta &field)
 {
@@ -31,6 +32,28 @@ RC IndexMeta::init(const char *name, const FieldMeta &field)
 
   name_  = name;
   field_ = field.name();
+  fields_.clear();
+  fields_.push_back(field.name());
+  return RC::SUCCESS;
+}
+
+RC IndexMeta::init(const char *name, const vector<const FieldMeta *> &fields)
+{
+  if (common::is_blank(name) || fields.empty()) {
+    LOG_ERROR("Failed to init index, name or fields is empty.");
+    return RC::INVALID_ARGUMENT;
+  }
+
+  name_ = name;
+  fields_.clear();
+  fields_.reserve(fields.size());
+  for (const FieldMeta *field : fields) {
+    if (field == nullptr) {
+      return RC::INVALID_ARGUMENT;
+    }
+    fields_.push_back(field->name());
+  }
+  field_ = fields_.front();
   return RC::SUCCESS;
 }
 
@@ -38,15 +61,44 @@ void IndexMeta::to_json(Json::Value &json_value) const
 {
   json_value[FIELD_NAME]       = name_;
   json_value[FIELD_FIELD_NAME] = field_;
+  Json::Value field_names;
+  for (const string &field_name : fields_) {
+    field_names.append(field_name);
+  }
+  json_value[FIELD_FIELD_NAMES] = std::move(field_names);
 }
 
 RC IndexMeta::from_json(const TableMeta &table, const Json::Value &json_value, IndexMeta &index)
 {
   const Json::Value &name_value  = json_value[FIELD_NAME];
   const Json::Value &field_value = json_value[FIELD_FIELD_NAME];
+  const Json::Value &fields_value = json_value[FIELD_FIELD_NAMES];
   if (!name_value.isString()) {
     LOG_ERROR("Index name is not a string. json value=%s", name_value.toStyledString().c_str());
     return RC::INTERNAL;
+  }
+
+  if (!fields_value.isNull()) {
+    if (!fields_value.isArray() || fields_value.empty()) {
+      LOG_ERROR("Field names of index [%s] is invalid. json value=%s",
+          name_value.asCString(), fields_value.toStyledString().c_str());
+      return RC::INTERNAL;
+    }
+
+    vector<const FieldMeta *> fields;
+    fields.reserve(fields_value.size());
+    for (const Json::Value &field_name_value : fields_value) {
+      if (!field_name_value.isString()) {
+        return RC::INTERNAL;
+      }
+      const FieldMeta *field = table.field(field_name_value.asCString());
+      if (nullptr == field) {
+        LOG_ERROR("Deserialize index [%s]: no such field: %s", name_value.asCString(), field_name_value.asCString());
+        return RC::SCHEMA_FIELD_MISSING;
+      }
+      fields.push_back(field);
+    }
+    return index.init(name_value.asCString(), fields);
   }
 
   if (!field_value.isString()) {

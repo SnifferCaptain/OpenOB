@@ -19,7 +19,41 @@ See the Mulan PSL v2 for more details. */
 
 BplusTreeIndex::~BplusTreeIndex() noexcept { close(); }
 
-RC BplusTreeIndex::create(Table *table, const char *file_name, const IndexMeta &index_meta, const FieldMeta &field_meta)
+int BplusTreeIndex::key_length() const
+{
+  if (field_metas_.size() == 1) {
+    return field_meta_.len();
+  }
+
+  int length = 0;
+  for (const FieldMeta &field_meta : field_metas_) {
+    length += field_meta.len();
+  }
+  return length * 2;
+}
+
+void BplusTreeIndex::make_key(const char *record, vector<char> &key) const
+{
+  if (field_metas_.size() == 1) {
+    key.assign(record + field_meta_.offset(), record + field_meta_.offset() + field_meta_.len());
+    return;
+  }
+
+  static constexpr char HEX[] = "0123456789ABCDEF";
+  key.clear();
+  key.reserve(key_length());
+  // 复合 key 需要避开二进制 0，否则 CHARS 比较会提前截断。
+  for (const FieldMeta &field_meta : field_metas_) {
+    const auto *data = reinterpret_cast<const unsigned char *>(record + field_meta.offset());
+    for (int i = 0; i < field_meta.len(); i++) {
+      key.push_back(HEX[data[i] >> 4]);
+      key.push_back(HEX[data[i] & 0x0F]);
+    }
+  }
+}
+
+RC BplusTreeIndex::create(
+    Table *table, const char *file_name, const IndexMeta &index_meta, const vector<const FieldMeta *> &field_metas)
 {
   if (inited_) {
     LOG_WARN("Failed to create index due to the index has been created before. file_name:%s, index:%s, field:%s",
@@ -27,10 +61,14 @@ RC BplusTreeIndex::create(Table *table, const char *file_name, const IndexMeta &
     return RC::RECORD_OPENNED;
   }
 
-  Index::init(index_meta, field_meta);
+  RC rc = Index::init(index_meta, field_metas);
+  if (rc != RC::SUCCESS) {
+    return rc;
+  }
 
   BufferPoolManager &bpm = table->db()->buffer_pool_manager();
-  RC rc = index_handler_.create(table->db()->log_handler(), bpm, file_name, field_meta.type(), field_meta.len());
+  const AttrType key_type = field_metas_.size() == 1 ? field_meta_.type() : AttrType::CHARS;
+  rc = index_handler_.create(table->db()->log_handler(), bpm, file_name, key_type, key_length());
   if (RC::SUCCESS != rc) {
     LOG_WARN("Failed to create index_handler, file_name:%s, index:%s, field:%s, rc:%s",
         file_name, index_meta.name(), index_meta.field(), strrc(rc));
@@ -44,7 +82,8 @@ RC BplusTreeIndex::create(Table *table, const char *file_name, const IndexMeta &
   return RC::SUCCESS;
 }
 
-RC BplusTreeIndex::open(Table *table, const char *file_name, const IndexMeta &index_meta, const FieldMeta &field_meta)
+RC BplusTreeIndex::open(
+    Table *table, const char *file_name, const IndexMeta &index_meta, const vector<const FieldMeta *> &field_metas)
 {
   if (inited_) {
     LOG_WARN("Failed to open index due to the index has been initedd before. file_name:%s, index:%s, field:%s",
@@ -52,10 +91,13 @@ RC BplusTreeIndex::open(Table *table, const char *file_name, const IndexMeta &in
     return RC::RECORD_OPENNED;
   }
 
-  Index::init(index_meta, field_meta);
+  RC rc = Index::init(index_meta, field_metas);
+  if (rc != RC::SUCCESS) {
+    return rc;
+  }
 
   BufferPoolManager &bpm = table->db()->buffer_pool_manager();
-  RC rc = index_handler_.open(table->db()->log_handler(), bpm, file_name);
+  rc = index_handler_.open(table->db()->log_handler(), bpm, file_name);
   if (RC::SUCCESS != rc) {
     LOG_WARN("Failed to open index_handler, file_name:%s, index:%s, field:%s, rc:%s",
         file_name, index_meta.name(), index_meta.field(), strrc(rc));
@@ -82,12 +124,16 @@ RC BplusTreeIndex::close()
 
 RC BplusTreeIndex::insert_entry(const char *record, const RID *rid)
 {
-  return index_handler_.insert_entry(record + field_meta_.offset(), rid);
+  vector<char> key;
+  make_key(record, key);
+  return index_handler_.insert_entry(key.data(), rid);
 }
 
 RC BplusTreeIndex::delete_entry(const char *record, const RID *rid)
 {
-  return index_handler_.delete_entry(record + field_meta_.offset(), rid);
+  vector<char> key;
+  make_key(record, key);
+  return index_handler_.delete_entry(key.data(), rid);
 }
 
 IndexScanner *BplusTreeIndex::create_scanner(
