@@ -82,6 +82,14 @@ RC ScalarGroupByPhysicalOperator::open(Trx *trx)
     return rc;
   }
 
+  if (group_value_ == nullptr && !aggregate_expressions_.empty()) {
+    AggregatorList aggregator_list;
+    create_aggregator_list(aggregator_list);
+
+    CompositeTuple composite_tuple;
+    group_value_ = make_unique<GroupValueType>(std::move(aggregator_list), std::move(composite_tuple));
+  }
+
   // 得到最终聚合后的值
   if (group_value_) {
     rc = evaluate(*group_value_);

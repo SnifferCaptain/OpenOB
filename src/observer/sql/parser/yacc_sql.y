@@ -220,6 +220,7 @@ Value *create_value_from_expression(Expression *expr)
 %type <join_tables>         from_clause
 %type <join_tables>         table_reference
 %type <expression>          expression
+%type <expression>          select_expression
 %type <expression>          function_expression
 %type <expression_list>     expression_list
 %type <expression_list>     group_by
@@ -562,6 +563,14 @@ select_stmt:        /*  select 语句的语法解析树*/
         delete $6;
       }
     }
+    | SELECT expression_list
+    {
+      $$ = new ParsedSqlNode(SCF_SELECT);
+      if ($2 != nullptr) {
+        $$->selection.expressions.swap(*$2);
+        delete $2;
+      }
+    }
     ;
 from_clause:
     table_reference
@@ -620,12 +629,12 @@ calc_stmt:
     ;
 
 expression_list:
-    expression
+    select_expression
     {
       $$ = new vector<unique_ptr<Expression>>;
       $$->emplace_back($1);
     }
-    | expression COMMA expression_list
+    | select_expression COMMA expression_list
     {
       if ($3 != nullptr) {
         $$ = $3;
@@ -633,6 +642,17 @@ expression_list:
         $$ = new vector<unique_ptr<Expression>>;
       }
       $$->emplace($$->begin(), $1);
+    }
+    ;
+select_expression:
+    expression
+    {
+      $$ = $1;
+    }
+    | expression ID
+    {
+      $$ = $1;
+      $$->set_name($2);
     }
     ;
 expression:
