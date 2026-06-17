@@ -790,11 +790,11 @@ RC FunctionExpr::calc_value(const vector<Value> &values, Value &value) const
 
         const int scale = values[1].get_int();
         const float multiplier = std::pow(10.0F, scale);
-        value.set_float(std::round(values[0].get_float() * multiplier) / multiplier);
+        value.set_float(std::nearbyint(values[0].get_float() * multiplier) / multiplier);
         return RC::SUCCESS;
       }
 
-      value.set_int(static_cast<int>(std::round(values[0].get_float())));
+      value.set_int(static_cast<int>(std::nearbyint(values[0].get_float())));
       return RC::SUCCESS;
     }
     case Type::DATE_FORMAT: {
