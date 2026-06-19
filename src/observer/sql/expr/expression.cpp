@@ -488,10 +488,7 @@ AttrType ArithmeticExpr::value_type() const
     return left_->value_type();
   }
 
-  if ((left_->value_type() == AttrType::INTS) &&
-      (right_->value_type() == AttrType::INTS) &&
-      (arithmetic_type_ != Type::DIV ||
-          (left_->type() == ExprType::VALUE && right_->type() == ExprType::VALUE))) {
+  if ((left_->value_type() == AttrType::INTS) && (right_->value_type() == AttrType::INTS) && arithmetic_type_ != Type::DIV) {
     return AttrType::INTS;
   }
 
