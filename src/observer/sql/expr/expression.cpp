@@ -360,8 +360,18 @@ RC ComparisonExpr::eval(Chunk &chunk, vector<uint8_t> &select)
     return rc;
   }
   if (left_column.attr_type() != right_column.attr_type()) {
-    LOG_WARN("cannot compare columns with different types");
-    return RC::INTERNAL;
+    for (int i = 0; i < static_cast<int>(select.size()); ++i) {
+      Value left_val  = left_column.get_value(i);
+      Value right_val = right_column.get_value(i);
+      bool  result    = false;
+      rc              = compare_value(left_val, right_val, result);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to compare tuple cells. rc=%s", strrc(rc));
+        return rc;
+      }
+      select[i] &= result ? 1 : 0;
+    }
+    return rc;
   }
   if (left_column.attr_type() == AttrType::INTS) {
     rc = compare_column<int>(left_column, right_column, select);
@@ -651,21 +661,59 @@ RC ArithmeticExpr::calc_column(const Column &left_column, const Column &right_co
   RC rc = RC::SUCCESS;
 
   const AttrType target_type = value_type();
-  column.init(target_type, left_column.attr_len(), max(left_column.count(), right_column.count()));
-  bool left_const  = left_column.column_type() == Column::Type::CONSTANT_COLUMN;
-  bool right_const = right_column.column_type() == Column::Type::CONSTANT_COLUMN;
+  Column left_cast_column;
+  Column right_cast_column;
+  const Column *calc_left_column  = &left_column;
+  const Column *calc_right_column = &right_column;
+
+  auto cast_column = [](const Column &src, AttrType type, Column &dst) -> RC {
+    dst.init(type, src.attr_len(), src.count());
+    dst.set_column_type(src.column_type());
+    for (int i = 0; i < src.count(); i++) {
+      Value value = src.get_value(i);
+      Value cast_value;
+      RC rc = Value::cast_to(value, type, cast_value);
+      if (rc != RC::SUCCESS) {
+        return rc;
+      }
+      rc = dst.append_value(cast_value);
+      if (rc != RC::SUCCESS) {
+        return rc;
+      }
+    }
+    return RC::SUCCESS;
+  };
+
+  if (left_column.attr_type() != target_type) {
+    rc = cast_column(left_column, target_type, left_cast_column);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+    calc_left_column = &left_cast_column;
+  }
+  if (right_column.attr_type() != target_type) {
+    rc = cast_column(right_column, target_type, right_cast_column);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+    calc_right_column = &right_cast_column;
+  }
+
+  column.init(target_type, calc_left_column->attr_len(), max(calc_left_column->count(), calc_right_column->count()));
+  bool left_const  = calc_left_column->column_type() == Column::Type::CONSTANT_COLUMN;
+  bool right_const = calc_right_column->column_type() == Column::Type::CONSTANT_COLUMN;
   if (left_const && right_const) {
     column.set_column_type(Column::Type::CONSTANT_COLUMN);
-    rc = execute_calc<true, true>(left_column, right_column, column, arithmetic_type_, target_type);
+    rc = execute_calc<true, true>(*calc_left_column, *calc_right_column, column, arithmetic_type_, target_type);
   } else if (left_const && !right_const) {
     column.set_column_type(Column::Type::NORMAL_COLUMN);
-    rc = execute_calc<true, false>(left_column, right_column, column, arithmetic_type_, target_type);
+    rc = execute_calc<true, false>(*calc_left_column, *calc_right_column, column, arithmetic_type_, target_type);
   } else if (!left_const && right_const) {
     column.set_column_type(Column::Type::NORMAL_COLUMN);
-    rc = execute_calc<false, true>(left_column, right_column, column, arithmetic_type_, target_type);
+    rc = execute_calc<false, true>(*calc_left_column, *calc_right_column, column, arithmetic_type_, target_type);
   } else {
     column.set_column_type(Column::Type::NORMAL_COLUMN);
-    rc = execute_calc<false, false>(left_column, right_column, column, arithmetic_type_, target_type);
+    rc = execute_calc<false, false>(*calc_left_column, *calc_right_column, column, arithmetic_type_, target_type);
   }
   return rc;
 }

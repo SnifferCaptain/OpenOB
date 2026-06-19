@@ -12,6 +12,7 @@ See the Mulan PSL v2 for more details. */
 
 #include "common/value.h"
 #include "sql/operator/physical_operator.h"
+#include "sql/parser/parse_defs.h"
 #include "storage/record/record.h"
 
 class Table;
@@ -24,8 +25,7 @@ class FieldMeta;
 class UpdatePhysicalOperator : public PhysicalOperator
 {
 public:
-  UpdatePhysicalOperator(Table *table, const string &attribute_name, const Value &value)
-    : table_(table), attribute_name_(attribute_name), value_(value)
+  UpdatePhysicalOperator(Table *table, const vector<UpdateValueSqlNode> &values) : table_(table), values_(values)
   {}
 
   virtual ~UpdatePhysicalOperator() = default;
@@ -47,8 +47,7 @@ private:
 
 private:
   Table *table_ = nullptr;
-  string attribute_name_;
-  Value value_;
+  vector<UpdateValueSqlNode> values_;
   vector<Record> records_;
   Trx *trx_ = nullptr;
 };

@@ -173,6 +173,8 @@ Value *create_value_from_expression(Expression *expr)
   vector<unique_ptr<Expression>> *           expression_list;
   vector<Value> *                            value_list;
   vector<ConditionSqlNode> *                 condition_list;
+  vector<UpdateValueSqlNode> *               update_value_list;
+  UpdateValueSqlNode *                       update_value;
   vector<RelAttrSqlNode> *                   rel_attr_list;
   vector<string> *                           relation_list;
   JoinTablesSqlNode *                        join_tables;
@@ -190,6 +192,8 @@ Value *create_value_from_expression(Expression *expr)
 %destructor { delete $$; } <expression_list>
 %destructor { delete $$; } <value_list>
 %destructor { delete $$; } <condition_list>
+%destructor { delete $$; } <update_value_list>
+%destructor { delete $$; } <update_value>
 // %destructor { delete $$; } <rel_attr_list>
 %destructor { delete $$; } <relation_list>
 %destructor { delete $$; } <join_tables>
@@ -215,6 +219,8 @@ Value *create_value_from_expression(Expression *expr)
 %type <condition_list>      where
 %type <condition_list>      condition_list
 %type <condition_list>      join_condition_list
+%type <update_value_list>   update_value_list
+%type <update_value>        update_value
 %type <cstring>             storage_format
 %type <key_list>            primary_key
 %type <key_list>            attr_list
@@ -547,16 +553,39 @@ delete_stmt:    /*  delete 语句的语法解析树*/
     }
     ;
 update_stmt:      /*  update 语句的语法解析树*/
-    UPDATE ID SET ID EQ value where 
+    UPDATE ID SET update_value_list where 
     {
       $$ = new ParsedSqlNode(SCF_UPDATE);
       $$->update.relation_name = $2;
-      $$->update.attribute_name = $4;
-      $$->update.value = *$6;
-      if ($7 != nullptr) {
-        $$->update.conditions.swap(*$7);
-        delete $7;
+      $$->update.values.swap(*$4);
+      delete $4;
+      if ($5 != nullptr) {
+        $$->update.conditions.swap(*$5);
+        delete $5;
       }
+    }
+    ;
+update_value_list:
+    update_value
+    {
+      $$ = new vector<UpdateValueSqlNode>;
+      $$->emplace_back(*$1);
+      delete $1;
+    }
+    | update_value COMMA update_value_list
+    {
+      $$ = $3;
+      $$->insert($$->begin(), *$1);
+      delete $1;
+    }
+    ;
+update_value:
+    ID EQ value
+    {
+      $$ = new UpdateValueSqlNode;
+      $$->attribute_name = $1;
+      $$->value = *$3;
+      delete $3;
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/

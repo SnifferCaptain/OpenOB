@@ -190,8 +190,7 @@ void LogicalUpdateToUpdate::transform(OperatorNode *input,
 {
   auto update_oper = dynamic_cast<UpdateLogicalOperator *>(input);
 
-  auto update_phys_oper = unique_ptr<PhysicalOperator>(
-      new UpdatePhysicalOperator(update_oper->table(), update_oper->attribute_name(), update_oper->value()));
+  auto update_phys_oper = unique_ptr<PhysicalOperator>(new UpdatePhysicalOperator(update_oper->table(), update_oper->values()));
   for (auto &child : update_oper->children()) {
     update_phys_oper->add_general_child(child.get());
   }

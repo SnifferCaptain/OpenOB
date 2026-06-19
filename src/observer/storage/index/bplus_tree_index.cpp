@@ -42,7 +42,7 @@ void BplusTreeIndex::make_key(const char *record, vector<char> &key) const
 
   static constexpr char HEX[] = "0123456789ABCDEF";
   key.clear();
-  key.reserve(key_length());
+  key.reserve(key_length() + 1);
   // 复合 key 需要避开二进制 0，否则 CHARS 比较会提前截断。
   for (const FieldMeta &field_meta : field_metas_) {
     const auto *data = reinterpret_cast<const unsigned char *>(record + field_meta.offset());
@@ -51,6 +51,7 @@ void BplusTreeIndex::make_key(const char *record, vector<char> &key) const
       key.push_back(HEX[data[i] & 0x0F]);
     }
   }
+  key.push_back('\0');
 }
 
 RC BplusTreeIndex::create(

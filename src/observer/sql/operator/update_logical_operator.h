@@ -10,6 +10,7 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
+#include "sql/parser/parse_defs.h"
 #include "sql/operator/logical_operator.h"
 
 class Table;
@@ -21,18 +22,16 @@ class Table;
 class UpdateLogicalOperator : public LogicalOperator
 {
 public:
-  UpdateLogicalOperator(Table *table, const string &attribute_name, const Value &value);
+  UpdateLogicalOperator(Table *table, const vector<UpdateValueSqlNode> &values);
   virtual ~UpdateLogicalOperator() = default;
 
   LogicalOperatorType type() const override { return LogicalOperatorType::UPDATE; }
   OpType get_op_type() const override { return OpType::LOGICALUPDATE; }
 
   Table *table() const { return table_; }
-  const string &attribute_name() const { return attribute_name_; }
-  const Value &value() const { return value_; }
+  const vector<UpdateValueSqlNode> &values() const { return values_; }
 
 private:
   Table *table_ = nullptr;
-  string attribute_name_;
-  Value value_;
+  vector<UpdateValueSqlNode> values_;
 };

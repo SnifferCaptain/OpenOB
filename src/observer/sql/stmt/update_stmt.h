@@ -28,21 +28,19 @@ class UpdateStmt : public Stmt
 public:
   UpdateStmt() = default;
 
-  UpdateStmt(Table *table, const string &attribute_name, const Value &value, FilterStmt *filter_stmt = nullptr);
+  UpdateStmt(Table *table, const vector<UpdateValueSqlNode> &values, FilterStmt *filter_stmt = nullptr);
   ~UpdateStmt() override;
 
   static RC create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt);
 
   Table *table() const { return table_; }
-  const string &attribute_name() const { return attribute_name_; }
-  const Value &value() const { return value_; }
+  const vector<UpdateValueSqlNode> &values() const { return values_; }
   FilterStmt *filter_stmt() const { return filter_stmt_; }
 
   StmtType type() const override { return StmtType::UPDATE; }
 
 private:
   Table *table_ = nullptr;
-  string attribute_name_;
-  Value value_;
+  vector<UpdateValueSqlNode> values_;
   FilterStmt *filter_stmt_ = nullptr;
 };

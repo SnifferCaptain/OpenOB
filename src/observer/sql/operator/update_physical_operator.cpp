@@ -70,11 +70,6 @@ RC UpdatePhysicalOperator::close()
 
 RC UpdatePhysicalOperator::update_record(Record &record)
 {
-  const FieldMeta *field = table_->table_meta().field(attribute_name_.c_str());
-  if (nullptr == field) {
-    return RC::SCHEMA_FIELD_NOT_EXIST;
-  }
-
   Record old_record;
   RC     rc = old_record.copy_data(record.data(), record.len());
   if (rc != RC::SUCCESS) {
@@ -83,9 +78,16 @@ RC UpdatePhysicalOperator::update_record(Record &record)
   old_record.set_rid(record.rid());
 
   Record new_record(old_record);
-  rc = update_record_field(new_record, field, value_);
-  if (rc != RC::SUCCESS) {
-    return rc;
+  for (const UpdateValueSqlNode &update_value : values_) {
+    const FieldMeta *field = table_->table_meta().field(update_value.attribute_name.c_str());
+    if (nullptr == field) {
+      return RC::SCHEMA_FIELD_NOT_EXIST;
+    }
+
+    rc = update_record_field(new_record, field, update_value.value);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
   }
 
   if (memcmp(old_record.data(), new_record.data(), old_record.len()) == 0) {

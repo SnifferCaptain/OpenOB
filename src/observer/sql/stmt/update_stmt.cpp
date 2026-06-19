@@ -19,8 +19,8 @@ See the Mulan PSL v2 for more details. */
 #include "storage/db/db.h"
 #include "storage/table/table.h"
 
-UpdateStmt::UpdateStmt(Table *table, const string &attribute_name, const Value &value, FilterStmt *filter_stmt)
-    : table_(table), attribute_name_(attribute_name), value_(value), filter_stmt_(filter_stmt)
+UpdateStmt::UpdateStmt(Table *table, const vector<UpdateValueSqlNode> &values, FilterStmt *filter_stmt)
+    : table_(table), values_(values), filter_stmt_(filter_stmt)
 {
 }
 
@@ -35,9 +35,8 @@ UpdateStmt::~UpdateStmt()
 RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
 {
   const char *table_name = update_sql.relation_name.c_str();
-  const char *field_name = update_sql.attribute_name.c_str();
-  if (nullptr == db || update_sql.relation_name.empty() || update_sql.attribute_name.empty()) {
-    LOG_WARN("[update | stmt] 输入无效. db=%p, table_name=%p, attribute=%s", db, table_name, field_name);
+  if (nullptr == db || update_sql.relation_name.empty() || update_sql.values.empty()) {
+    LOG_WARN("[update | stmt] 输入无效. db=%p, table_name=%p", db, table_name);
     return RC::INVALID_ARGUMENT;
   }
 
@@ -47,22 +46,28 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
     return RC::SCHEMA_TABLE_NOT_EXIST;
   }
 
-  const FieldMeta *field = table->table_meta().field(field_name);
-  if (nullptr == field) {
-    LOG_WARN("[update | stmt] 字段不存在. table=%s, field=%s", table_name, field_name);
-    return RC::SCHEMA_FIELD_NOT_EXIST;
-  }
-
-  Value value(update_sql.value);
-  if (field->type() != value.attr_type()) {
-    Value cast_value;
-    RC rc = Value::cast_to(update_sql.value, field->type(), cast_value);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("[update | stmt] 类型不匹配 table=%s, field=%s, value=%s, rc=%s",
-          table_name, field_name, update_sql.value.to_string().c_str(), strrc(rc));
-      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+  vector<UpdateValueSqlNode> values;
+  values.reserve(update_sql.values.size());
+  for (const UpdateValueSqlNode &update_value : update_sql.values) {
+    const char *field_name = update_value.attribute_name.c_str();
+    const FieldMeta *field = table->table_meta().field(field_name);
+    if (nullptr == field) {
+      LOG_WARN("[update | stmt] 字段不存在. table=%s, field=%s", table_name, field_name);
+      return RC::SCHEMA_FIELD_NOT_EXIST;
     }
-    value = cast_value;
+
+    Value value(update_value.value);
+    if (field->type() != value.attr_type()) {
+      Value cast_value;
+      RC rc = Value::cast_to(update_value.value, field->type(), cast_value);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("[update | stmt] 类型不匹配 table=%s, field=%s, value=%s, rc=%s",
+            table_name, field_name, update_value.value.to_string().c_str(), strrc(rc));
+        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
+      value = cast_value;
+    }
+    values.push_back({update_value.attribute_name, value});
   }
 
   FilterStmt *filter_stmt = nullptr;
@@ -80,6 +85,6 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
     return rc;
   }
 
-  stmt = new UpdateStmt(table, field_name, value, filter_stmt);
+  stmt = new UpdateStmt(table, values, filter_stmt);
   return RC::SUCCESS;
 }
