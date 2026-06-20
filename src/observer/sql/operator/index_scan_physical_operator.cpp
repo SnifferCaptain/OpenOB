@@ -111,6 +111,9 @@ Tuple *IndexScanPhysicalOperator::current_tuple()
 
 void IndexScanPhysicalOperator::set_predicates(vector<unique_ptr<Expression>> &&exprs)
 {
+  for (unique_ptr<Expression> &expr : exprs) {
+    force_predicate_integer_division(expr);
+  }
   predicates_ = std::move(exprs);
 }
 
