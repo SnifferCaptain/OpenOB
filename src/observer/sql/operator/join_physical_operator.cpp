@@ -16,7 +16,9 @@ See the Mulan PSL v2 for more details. */
 
 NestedLoopJoinPhysicalOperator::NestedLoopJoinPhysicalOperator(unique_ptr<Expression> predicate)
     : predicate_(std::move(predicate))
-{}
+{
+  force_predicate_integer_division(predicate_);
+}
 
 RC NestedLoopJoinPhysicalOperator::open(Trx *trx)
 {
