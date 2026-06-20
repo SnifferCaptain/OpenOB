@@ -402,11 +402,14 @@ public:
 
   unique_ptr<Expression> copy() const override
   {
+    unique_ptr<ArithmeticExpr> expr;
     if (right_) {
-      return make_unique<ArithmeticExpr>(arithmetic_type_, left_->copy(), right_->copy());
+      expr = make_unique<ArithmeticExpr>(arithmetic_type_, left_->copy(), right_->copy());
     } else {
-      return make_unique<ArithmeticExpr>(arithmetic_type_, left_->copy(), nullptr);
+      expr = make_unique<ArithmeticExpr>(arithmetic_type_, left_->copy(), nullptr);
     }
+    expr->force_integer_division_ = force_integer_division_;
+    return expr;
   }
 
   bool     equal(const Expression &other) const override;
@@ -422,6 +425,7 @@ public:
   RC try_get_value(Value &value) const override;
 
   Type arithmetic_type() const { return arithmetic_type_; }
+  void force_integer_division() { force_integer_division_ = true; }
 
   unique_ptr<Expression> &left() { return left_; }
   unique_ptr<Expression> &right() { return right_; }
@@ -438,6 +442,7 @@ private:
   Type                   arithmetic_type_;
   unique_ptr<Expression> left_;
   unique_ptr<Expression> right_;
+  bool                   force_integer_division_ = false;
 };
 
 class FunctionExpr : public Expression
