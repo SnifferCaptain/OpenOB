@@ -570,3 +570,5 @@ private:
   Type                   aggregate_type_;
   unique_ptr<Expression> child_;
 };
+
+void force_predicate_integer_division(unique_ptr<Expression> &expr);

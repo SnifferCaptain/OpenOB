@@ -18,49 +18,6 @@ See the Mulan PSL v2 for more details. */
 #include "storage/field/field.h"
 #include "storage/record/record.h"
 
-static void force_predicate_integer_division(std::unique_ptr<Expression> &expr)
-{
-  if (expr == nullptr) {
-    return;
-  }
-
-  switch (expr->type()) {
-    case ExprType::ARITHMETIC: {
-      auto *arithmetic_expr = static_cast<ArithmeticExpr *>(expr.get());
-      if (arithmetic_expr->arithmetic_type() == ArithmeticExpr::Type::DIV &&
-          arithmetic_expr->left()->type() == ExprType::FIELD &&
-          arithmetic_expr->right() != nullptr &&
-          arithmetic_expr->right()->value_type() == AttrType::INTS) {
-        arithmetic_expr->force_integer_division();
-      }
-      force_predicate_integer_division(arithmetic_expr->left());
-      force_predicate_integer_division(arithmetic_expr->right());
-    } break;
-    case ExprType::COMPARISON: {
-      auto *comparison_expr = static_cast<ComparisonExpr *>(expr.get());
-      force_predicate_integer_division(comparison_expr->left());
-      force_predicate_integer_division(comparison_expr->right());
-    } break;
-    case ExprType::CONJUNCTION: {
-      auto *conjunction_expr = static_cast<ConjunctionExpr *>(expr.get());
-      for (std::unique_ptr<Expression> &child : conjunction_expr->children()) {
-        force_predicate_integer_division(child);
-      }
-    } break;
-    case ExprType::CAST: {
-      auto *cast_expr = static_cast<CastExpr *>(expr.get());
-      force_predicate_integer_division(cast_expr->child());
-    } break;
-    case ExprType::FUNCTION: {
-      auto *function_expr = static_cast<FunctionExpr *>(expr.get());
-      for (std::unique_ptr<Expression> &child : function_expr->children()) {
-        force_predicate_integer_division(child);
-      }
-    } break;
-    default: break;
-  }
-}
-
 PredicatePhysicalOperator::PredicatePhysicalOperator(std::unique_ptr<Expression> expr) : expression_(std::move(expr))
 {
   force_predicate_integer_division(expression_);
